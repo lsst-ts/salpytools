@@ -3,7 +3,8 @@ import time
 import sys
 import threading
 import logging
-import salpytools.states as states
+import salpytools.states as csc_states
+from salpytools.utils import create_logger, load_SALPYlib
 import inspect
 from importlib import import_module
 import copy
@@ -30,69 +31,49 @@ The the Main classes in the module are:
 SAL__CMD_COMPLETE=303
 spinner = itertools.cycle(['-', '/', '|', '\\'])
 
-def create_logger(level=logging.NOTSET,name='default'):
-    ''' Simple Logger '''
-    logging.basicConfig(level=level,
-                        format='[%(asctime)s] [%(levelname)s] %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
-    logger = logging.getLogger(name)
-    return logger
+LOGGER = create_logger(name=__name__)
 
-# Create a logger for all functions
-LOGGER = create_logger(level=logging.NOTSET,name='HEADERSERVICE')
+class StateMachine:
 
-def load_SALPYlib(Device):
-    '''Trick to import modules dynamically as needed/depending on the Device we want'''
+    """
+    A Class to store the CSC state machine.
 
-    # Make sure is not already loaded i.e. visible in globals
-    try:
-        SALPY_lib = globals()['SALPY_{}'.format(Device)]
-        LOGGER.info('SALPY_{} is already in globals'.format(Device))
-        return SALPY_lib
-    except:
-        LOGGER.info('importing SALPY_{}'.format(Device))
-        exec("import SALPY_{}".format(Device))
-    else:
-        raise ValueError("import SALPY_{}: failed".format(Device))
-    SALPY_lib = locals()['SALPY_{}'.format(Device)]
-    # Update to make it visible elsewhere -- not sure if this works
-    globals()['SALPY_{}'.format(Device)] = SALPY_lib
-    return SALPY_lib
-
-class DeviceState:
-
-    '''
-    A Class to store the SCS (a.k.a Device). For now this is very
-    rudimentary and written mostly to fullfil the needs of the
-    HeaderService
-    '''
-
-    def __init__(self, Device='atHeaderService',default_state='OFFLINE',
-                 tsleep=0.5,
-                 eventlist = ['SummaryState',
-                              'SettingVersions',
-                              'RejectedCommand',
-                              'SettingsApplied',
-                              'AppliedSettingsMatchStart'] ):
+    """
+    def __init__(self, device, default_state='OFFLINE', states=None,
+                 tsleep=0.5):
 
         self.current_state = default_state
         self.tsleep = tsleep
-        self.Device = Device
-        
-        LOGGER.info('{} Init beginning'.format(Device))
-        LOGGER.info('Starting with default state: {}'.format(default_state))
+        self.device = device
+        self.log = create_logger(level=logging.NOTSET, name=device)
+
+        self.log.debug('{} Init beginning'.format(device))
+        self.log.debug('Starting with default state: {}'.format(default_state))
+
+        if states is not None:
+            self.states = states
+        else:
+            # Loading default states
+            self.states = dict()
+            self.states["OFFLINE"] = csc_states.BaseState('OFFLINE', device)
+            self.states["STANDBY"] = csc_states.BaseState('STANDBY', device)
+            self.states["DISABLE"] = csc_states.BaseState('DISABLE', device)
+            self.states["ENABLE"] = csc_states.BaseState('ENABLE', device)
+            self.states["FAULT"] = csc_states.BaseState('FAULT', device)
+            self.states["INITIAL"] = csc_states.BaseState('INITIAL', device)
+            self.states["FINAL"] = csc_states.BaseState('FINAL', device)
 
         # Load (if not in globals already) SALPY_{deviceName} into class
-        self.SALPY_lib = load_SALPYlib(self.Device)
+        # self.SALPY_lib = load_SALPYlib(self.device)
         # Subscribe to all events in list
-        self.subscribe_list(eventlist)
+        # self.subscribe_list(eventlist)
+        # self.mgr = {}
+        # self.myData = {}
+        # self.logEvent = {}
+        # self.myData_keys = {}
 
     def subscribe_list(self,eventlist):
         # Subscribe to list of logEvents
-        self.mgr = {}
-        self.myData = {}
-        self.logEvent = {}
-        self.myData_keys = {}
         for eventname in eventlist:
             self.subscribe_logEvent(eventname)
 
@@ -116,30 +97,50 @@ class DeviceState:
         for key in kwargs:
             setattr(self.myData[eventname],key,kwargs.get(key))
 
-        LOGGER.info('Sending {}'.format(eventname))
+        self.log.info('Sending {}'.format(eventname))
         self.logEvent[eventname](self.myData[eventname], priority)
-        LOGGER.info('Sent sucessfully {} Data Object'.format(eventname))
+        self.log.info('Sent sucessfully {} Data Object'.format(eventname))
         for key in self.myData_keys[eventname]:
-            LOGGER.info('\t{}:{}'.format(key,getattr(self.myData[eventname],key)))
+            self.log.info('\t{}:{}'.format(key,getattr(self.myData[eventname],key)))
         time.sleep(self.tsleep)
         return True
 
-    def subscribe_logEvent(self,eventname):
-        '''
+    def subscribe_logEvent(self, eventname):
+        """
         Create a subscription for the {Device}_logevent_{eventnname}
         This step need to be done before we call send_logEvent
-        '''
-        self.mgr[eventname] = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
-        self.mgr[eventname].salEvent("{}_logevent_{}".format(self.Device,eventname))
+
+        :param eventname:
+        :return:
+        """
+        self.mgr[eventname] = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))()
+        self.mgr[eventname].salEvent("{}_logevent_{}".format(self.device, eventname))
         self.logEvent[eventname] = getattr(self.mgr[eventname],'logEvent_{}'.format(eventname))
-        self.myData[eventname] = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.Device,eventname))()
+        self.myData[eventname] = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.device, eventname))()
             
         self.myData_keys[eventname] = [a[0] for a in inspect.getmembers(self.myData[eventname]) if not(a[0].startswith('__') and a[0].endswith('__'))]
-        LOGGER.info('Initializing: {}_logevent_{}'.format(self.Device,eventname))
+        self.log.info('Initializing: {}_logevent_{}'.format(self.device, eventname))
         
     def get_current_state(self):
-        '''Function to get the current state'''
+        """
+        Function to get the current state
+
+        :return:
+        """
         return self.current_state
+
+    def validate_transition(self, new_state):
+
+        return validate_transition(self.current_state, new_state)
+
+    def make_transition(self, new_state):
+
+        if not self.validate_transition(new_state):
+            raise Exception("Cannot perform transition: {} --> {}".format(self.current_state, new_state))
+        else:
+            self.states[self.current_state].sleep()
+            self.current_state = new_state
+            self.states[new_state].wake()
 
 
 class DDSController(threading.Thread):
@@ -150,11 +151,12 @@ class DDSController(threading.Thread):
     that this one can send the acks to the Commands.
     '''
     
-    def __init__(self, command, module='atHeaderService', topic=None, threadID='1', tsleep=0.5, State=None):
+    def __init__(self, command, module='atHeaderService', topic=None, threadID='1', tsleep=0.5, state_machine=None):
         threading.Thread.__init__(self)
+        self.log = create_logger(level=logging.NOTSET, name=module)
         self.threadID = threadID
         self.module = module
-        self.command  = command
+        self.command = command
         self.COMMAND = self.command.upper()
         # The topic:
         if not topic:
@@ -163,10 +165,10 @@ class DDSController(threading.Thread):
             self.topic  = topic
         self.tsleep = tsleep
         self.daemon = True
-        self.State = State
+        self.state_machine = state_machine
 
         # Store to which state this command is going to move up, using the states.next_state dictionary
-        self.next_state = states.next_state[self.COMMAND]
+        self.next_state = csc_states.next_state[self.COMMAND]
         
         # Subscribe
         self.subscribe()
@@ -189,7 +191,7 @@ class DDSController(threading.Thread):
         self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.module))()
         self.mgr.salProcessor(self.topic)
         self.myData = getattr(SALPY_lib,self.topic+'C')()
-        LOGGER.info("{} controller ready for topic: {}".format(self.module,self.topic))
+        self.log.info("{} controller ready for topic: {}".format(self.module,self.topic))
 
         # We use getattr to get the equivalent of for our accept and ack command
         # mgr.acceptCommand_EnterControl()
@@ -208,39 +210,42 @@ class DDSController(threading.Thread):
                 self.newControl = True
             time.sleep(self.tsleep)
 
-    def reply_to_transition(self,cmdId):
+    def reply_to_transition(self, cmdid):
 
         # Check if valid transition
-        if validate_transition(self.State.current_state, self.next_state):
+        # if validate_transition(self.State.current_state, self.next_state):
+        if self.state_machine.validate_transition(self.next_state):
+            self.log.info("VALID TRANSITION: {} --> {}".format(self.state_machine.current_state, self.next_state))
             # Send the ACK
-            self.mgr_ackCommand(cmdId, SAL__CMD_COMPLETE, 0, "Done : OK");
+            self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
             # Update the current state
-            self.State.current_state = self.next_state
+            self.state_machine.make_transition(self.next_state)
+            # self.State.current_state = self.next_state
 
-            if self.COMMAND == 'ENTERCONTROL':
-                # self.State.send_logEvent("SettingVersions", package_versions='master')
-                self.State.send_logEvent('SummaryState')
-            elif self.COMMAND == 'START':
-                # Extract 'myData.configure' for START, eventually we
-                # will apply the setting for this configuration, for now we
-                LOGGER.info("From {} received configure: {}".format(self.COMMAND,self.myData.configure))
-                # Here we should apply the setting in the future
-                self.State.send_logEvent('SettingsApplied')
-                self.State.send_logEvent('AppliedSettingsMatchStart',appliedSettingsMatchStartIsTrue=1)
-                self.State.send_logEvent('SummaryState')
-            else:
-                self.State.send_logEvent('SummaryState')
+            # if self.COMMAND == 'ENTERCONTROL':
+            #     # self.State.send_logEvent("SettingVersions", package_versions='master')
+            #     self.State.send_logEvent('SummaryState')
+            # elif self.COMMAND == 'START':
+            #     # Extract 'myData.configure' for START, eventually we
+            #     # will apply the setting for this configuration, for now we
+            #     LOGGER.info("From {} received configure: {}".format(self.COMMAND,self.myData.configure))
+            #     # Here we should apply the setting in the future
+            #     self.State.send_logEvent('SettingsApplied')
+            #     self.State.send_logEvent('AppliedSettingsMatchStart',appliedSettingsMatchStartIsTrue=1)
+            #     self.State.send_logEvent('SummaryState')
+            # else:
+            #     self.State.send_logEvent('SummaryState')
         else:
-            LOGGER.info("WARNING: INVALID TRANSITION from {} --> {}".format(self.State.current_state, self.next_state))
-            self.State.send_logEvent('RejectedCommand',rejected_state=self.COMMAND)
+            self.log.warning("INVALID TRANSITION: {} --> {}".format(self.state_machine.current_state, self.next_state))
+            self.state_machine.send_logEvent('RejectedCommand', rejected_state=self.COMMAND)
 
 def validate_transition(current_state, new_state):
     """
     Stand-alone function to validate transition. It returns true/false
     """
-    current_index = states.state_enumeration[current_state]
-    new_index = states.state_enumeration[new_state]
-    transition_is_valid = states.state_matrix[current_index][new_index]
+    current_index = csc_states.state_enumeration[current_state]
+    new_index = csc_states.state_enumeration[new_state]
+    transition_is_valid = csc_states.state_matrix[current_index][new_index]
     if transition_is_valid:
         LOGGER.info("Transition from {} --> {} is VALID".format(current_state, new_state))
     else:
