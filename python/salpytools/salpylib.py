@@ -33,44 +33,49 @@ spinner = itertools.cycle(['-', '/', '|', '\\'])
 
 LOGGER = create_logger(name=__name__)
 
-class StateMachine:
+class Context:
+    """The Context orchestrates triggers from the states to the model. 
 
+    When creating DDSControllers a Context is passed into it. When the 
+    DDSController recieves commands it delegates these actions to the Context. 
+    The context then delegates this to the active State. The salpylib allows 
+    the states to be inherited from to override behavior of these states, in 
+    face it is intended to be used this way. In essence this gives the 
+    implementer full control on what the recieved call on the model. 
+
+    Attributes:
+        subsystem_tag: A string of the name of the CSC we want. Must exactly 
+        match the Subsystem Tag defined in XML. Link to current Subsystem Tags
+        https://stash.lsstcorp.org/projects/TS/repos/ts_xml/browse/sal_interfaces
+        default_state: default state defined within states.py of this library.
+        tsleep: A sleeper to prevent race conditions when sending log events.
+        states: List of states this context will contain. In general use, these
+        should be subclassed states with overriden behavior. 
     """
-    A Class to store the CSC state machine.
-
-    """
-    def __init__(self, device, default_state='OFFLINE', states=None,
-                 tsleep=0.5):
-
+    def __init__(self, subsystem_tag, default_state='OFFLINE', tsleep=0.5, 
+                 states=None):
+        
+        self.subsystem_tag = subsystem_tag
         self.current_state = default_state
         self.tsleep = tsleep
-        self.device = device
-        self.log = create_logger(level=logging.NOTSET, name=device)
-
-        self.log.debug('{} Init beginning'.format(device))
-        self.log.debug('Starting with default state: {}'.format(default_state))
-
         if states is not None:
             self.states = states
         else:
             # Loading default states
             self.states = dict()
-            self.states["OFFLINE"] = csc_states.BaseState('OFFLINE', device)
-            self.states["STANDBY"] = csc_states.BaseState('STANDBY', device)
-            self.states["DISABLE"] = csc_states.BaseState('DISABLE', device)
-            self.states["ENABLE"] = csc_states.BaseState('ENABLE', device)
-            self.states["FAULT"] = csc_states.BaseState('FAULT', device)
-            self.states["INITIAL"] = csc_states.BaseState('INITIAL', device)
-            self.states["FINAL"] = csc_states.BaseState('FINAL', device)
+            self.states["OFFLINE"] = csc_states.BaseState('OFFLINE', self.subsystem_tag)
+            self.states["STANDBY"] = csc_states.BaseState('STANDBY', self.subsystem_tag)
+            self.states["DISABLE"] = csc_states.BaseState('DISABLE', self.subsystem_tag)
+            self.states["ENABLE"] = csc_states.BaseState('ENABLE', self.subsystem_tag)
+            self.states["FAULT"] = csc_states.BaseState('FAULT', self.subsystem_tag)
+            self.states["INITIAL"] = csc_states.BaseState('INITIAL', self.subsystem_tag)
+            self.states["FINAL"] = csc_states.BaseState('FINAL', self.subsystem_tag)
 
-        # Load (if not in globals already) SALPY_{deviceName} into class
-        # self.SALPY_lib = load_SALPYlib(self.device)
-        # Subscribe to all events in list
-        # self.subscribe_list(eventlist)
-        # self.mgr = {}
-        # self.myData = {}
-        # self.logEvent = {}
-        # self.myData_keys = {}
+        # Useful debug logging
+        self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
+        self.log.debug('{} Init beginning'.format(self.subsystem_tag))
+        self.log.debug('Starting with default state: {}'.format(default_state))
+
 
     def subscribe_list(self,eventlist):
         # Subscribe to list of logEvents
@@ -113,13 +118,13 @@ class StateMachine:
         :param eventname:
         :return:
         """
-        self.mgr[eventname] = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))()
-        self.mgr[eventname].salEvent("{}_logevent_{}".format(self.device, eventname))
+        self.mgr[eventname] = getattr(self.SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
+        self.mgr[eventname].salEvent("{}_logevent_{}".format(self.subsystem_tag, eventname))
         self.logEvent[eventname] = getattr(self.mgr[eventname],'logEvent_{}'.format(eventname))
-        self.myData[eventname] = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.device, eventname))()
+        self.myData[eventname] = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.subsystem_tag, eventname))()
             
         self.myData_keys[eventname] = [a[0] for a in inspect.getmembers(self.myData[eventname]) if not(a[0].startswith('__') and a[0].endswith('__'))]
-        self.log.info('Initializing: {}_logevent_{}'.format(self.device, eventname))
+        self.log.info('Initializing: {}_logevent_{}'.format(self.subsystem_tag, eventname))
         
     def get_current_state(self):
         """
@@ -144,28 +149,56 @@ class StateMachine:
 
 
 class DDSController(threading.Thread):
-
-    '''
-    Class to subscribe and react to Commands for a Device.
-    This class is very similar to DDSSubcriber, but the difference is
-    that this one can send the acks to the Commands.
-    '''
+    """Class to subscribe and react to Commands for a Context.
     
-    def __init__(self, command, module='atHeaderService', topic=None, threadID='1', tsleep=0.5, state_machine=None):
+    The DDSController requires a Context be passed into it. This is so that the 
+    command this DDSController is created to watch can delegate the action to 
+    the Context. When a DDSController object recieves a trigger over SAL, it 
+    will delegate this action to the Context. The Context then delegates the 
+    action to the current state. DDSController is very similar to DDSSubcriber, 
+    but the difference is that this one can send the acks to the Commands.
+
+    A note on DDSController creation: When the SAL library creates commands
+    from your XML, it does so using the following format;
+
+                   [subsystem_tag]_command_[command name]
+
+    For example, the command "enterControl" for the subsystem tag "scheduler"
+    would be called "scheduler_command_enterControl" on the EFDB database. A 
+    DDSController object can be created by either defining the full topic name,
+    or by defining a subsystem tag and command name. 
+
+    Attributes:
+        command: String of the command for this DDSController to watch. Must 
+        match the exact name of the command defined within the EFDB Topic tag.
+        subsystem_tag: A string of the name of the CSC we want. Must exactly 
+        match the Subsystem Tag defined in XML. Link to current Subsystem Tags
+        https://stash.lsstcorp.org/projects/TS/repos/ts_xml/browse/sal_interfaces
+        topic: Name of the complete topic we wish to subscribe to. If left empty
+        we use the command and subsytem_tag. 
+    """
+    def __init__(self, context, command=None, topic=None, threadID='1', tsleep=0.5):
+        
+        # Either a command or topic need to be defined to tell this 
+        # DDSController what topic to subscribe and react to.
+        if command is None and topic is None:
+            raise ValueError("Either command or topic must be defined")
+
         threading.Thread.__init__(self)
-        self.log = create_logger(level=logging.NOTSET, name=module)
-        self.threadID = threadID
-        self.module = module
+        self.subsystem_tag = context.subsystem_tag
         self.command = command
         self.COMMAND = self.command.upper()
-        # The topic:
         if not topic:
-            self.topic = "{}_command_{}".format(module,command)
+            self.topic = "{}_command_{}".format(self.subsystem_tag, self.command)
         else:
             self.topic  = topic
+        self.threadID = threadID
         self.tsleep = tsleep
+        self.context = context
         self.daemon = True
-        self.state_machine = state_machine
+        
+        # Create a logger
+        self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
 
         # Store to which state this command is going to move up, using the states.next_state dictionary
         self.next_state = csc_states.next_state[self.COMMAND]
@@ -178,7 +211,7 @@ class DDSController(threading.Thread):
         # This section does the equivalent of:
         # self.mgr = SALPY_tcs.SAL_tcs()
         # The steps are:
-        # - 'figure out' the SALPY_xxxx module name
+        # - 'figure out' the SALPY_xxxx subsystem_tag name
         # - find the library pointer using globals()
         # - create a mananger
         # Here we do the equivalent of:
@@ -187,11 +220,11 @@ class DDSController(threading.Thread):
         self.newControl = False
 
         # Get the mgr
-        SALPY_lib = import_module('SALPY_{}'.format(self.module)) #globals()['SALPY_{}'.format(self.module)]
-        self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.module))()
+        SALPY_lib = import_module('SALPY_{}'.format(self.subsystem_tag)) #globals()['SALPY_{}'.format(self.subsystem_tag)]
+        self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
         self.mgr.salProcessor(self.topic)
         self.myData = getattr(SALPY_lib,self.topic+'C')()
-        self.log.info("{} controller ready for topic: {}".format(self.module,self.topic))
+        self.log.info("{} controller ready for topic: {}".format(self.subsystem_tag,self.topic))
 
         # We use getattr to get the equivalent of for our accept and ack command
         # mgr.acceptCommand_EnterControl()
@@ -214,12 +247,12 @@ class DDSController(threading.Thread):
 
         # Check if valid transition
         # if validate_transition(self.State.current_state, self.next_state):
-        if self.state_machine.validate_transition(self.next_state):
-            self.log.info("VALID TRANSITION: {} --> {}".format(self.state_machine.current_state, self.next_state))
+        if self.context.validate_transition(self.next_state):
+            self.log.info("VALID TRANSITION: {} --> {}".format(self.context.current_state, self.next_state))
             # Send the ACK
             self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
             # Update the current state
-            self.state_machine.make_transition(self.next_state)
+            self.context.make_transition(self.next_state)
             # self.State.current_state = self.next_state
 
             # if self.COMMAND == 'ENTERCONTROL':
@@ -236,8 +269,8 @@ class DDSController(threading.Thread):
             # else:
             #     self.State.send_logEvent('SummaryState')
         else:
-            self.log.warning("INVALID TRANSITION: {} --> {}".format(self.state_machine.current_state, self.next_state))
-            self.state_machine.send_logEvent('RejectedCommand', rejected_state=self.COMMAND)
+            self.log.warning("INVALID TRANSITION: {} --> {}".format(self.context.current_state, self.next_state))
+            self.context.send_logEvent('RejectedCommand', rejected_state=self.COMMAND)
 
 def validate_transition(current_state, new_state):
     """
