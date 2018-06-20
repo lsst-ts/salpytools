@@ -87,7 +87,7 @@ state_matrix[5][5] = True
 state_matrix[6][6] = True
 
 
-class BaseState:
+class DefaultState:
 
     def __init__(self, name, device, events=('SummaryState',), tsleep=0.5):
         self.name = name
@@ -163,5 +163,6 @@ class BaseState:
         self.log.debug('State waking')
         self.send_logEvent('SummaryState')
 
+class StandbyState():
 
 
