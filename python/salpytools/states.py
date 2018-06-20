@@ -163,6 +163,73 @@ class DefaultState:
         self.log.debug('State waking')
         self.send_logEvent('SummaryState')
 
-class StandbyState():
+class StandbyState(DefaultState):
+
+    def exit(self, model):
+        pass
+
+    def on_heartbeat(self, model):
+        pass
+
+    def start(self, model):
+        pass
+
+class FaultState(DefaultState):
+
+    def go_to_standby(self, model):
+        pass
+
+    def on_heartbeat(self, model):
+        pass
+
+    def on_incoming_messaging_error(self, model):
+        pass
+
+    def on interup_end_loop(self, error):
+
+class OfflineState(DefaultState):
+    pass
+
+class DisabledState(DefaultState):
+
+    def enable(self, model):
+        pass
+
+    def go_to_standby(self, model):
+        pass
+
+    def on_heartbeat(self, model):
+        pass
+
+    def on_incoming_messaging_error(self, model):
+        pass
+
+    def on_interrupt_end_loop(self, model):
+        pass
+
+    def on_interrupt_process_triggers(self, model):
+        pass
+
+class EnabledState(DefaultState):
+
+    def disable(self, model):
+        pass
+
+    def on_hearbeat(self, model):
+        pass
+
+    def on_incoming_messaging_error(self, model):
+        pass
+
+    def on_interrupt_end_loop(self, model):
+        pass
+
+    def on_interrupt_process_triggers(self, model):
+
+
+
+
+
+
 
 
