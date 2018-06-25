@@ -34,28 +34,29 @@ spinner = itertools.cycle(['-', '/', '|', '\\'])
 LOGGER = create_logger(name=__name__)
 
 class Context:
-    """The Context orchestrates triggers from the states to the model. 
+    """The Context orchestrates triggers from the states to the model.
 
-    When creating DDSControllers a Context is passed into it. When the 
-    DDSController recieves commands it delegates these actions to the Context. 
-    The context then delegates this to the active State. The salpylib allows 
-    the states to be inherited from to override behavior of these states, in 
-    face it is intended to be used this way. In essence this gives the 
-    implementer full control on what the recieved call on the model. 
+    When creating DDSControllers a Context is passed into it. When the
+    DDSController recieves commands it delegates these actions to the Context.
+    The context then delegates this to the active State. The salpylib allows
+    the states to be inherited from to override behavior of these states, in
+    face it is intended to be used this way. In essence this gives the
+    implementer full control on what the recieved call on the model.
 
     Attributes:
-        subsystem_tag: A string of the name of the CSC we want. Must exactly 
+        subsystem_tag: A string of the name of the CSC we want. Must exactly
         match the Subsystem Tag defined in XML. Link to current Subsystem Tags
         https://stash.lsstcorp.org/projects/TS/repos/ts_xml/browse/sal_interfaces
         default_state: default state defined within states.py of this library.
         tsleep: A sleeper to prevent race conditions when sending log events.
         states: List of states this context will contain. In general use, these
-        should be subclassed states with overriden behavior. 
+        should be subclassed states with overriden behavior.
     """
-    def __init__(self, subsystem_tag, default_state='OFFLINE', tsleep=0.5, 
+    def __init__(self, subsystem_tag, model, default_state='OFFLINE', tsleep=0.5,
                  states=None):
-        
+
         self.subsystem_tag = subsystem_tag
+        self.model = model
         self.current_state = default_state
         self.tsleep = tsleep
         if states is not None:
@@ -63,13 +64,13 @@ class Context:
         else:
             # Loading default states
             self.states = dict()
-            self.states["OFFLINE"] = csc_states.BaseState('OFFLINE', self.subsystem_tag)
-            self.states["STANDBY"] = csc_states.BaseState('STANDBY', self.subsystem_tag)
-            self.states["DISABLE"] = csc_states.BaseState('DISABLE', self.subsystem_tag)
-            self.states["ENABLE"] = csc_states.BaseState('ENABLE', self.subsystem_tag)
-            self.states["FAULT"] = csc_states.BaseState('FAULT', self.subsystem_tag)
-            self.states["INITIAL"] = csc_states.BaseState('INITIAL', self.subsystem_tag)
-            self.states["FINAL"] = csc_states.BaseState('FINAL', self.subsystem_tag)
+            self.states["OFFLINE"] = csc_states.OfflineState(self.subsystem_tag)
+            self.states["STANDBY"] = csc_states.StandbyState(self.subsystem_tag)
+            self.states["DISABLED"] = csc_states.DisabledState(self.subsystem_tag)
+            self.states["ENABLED"] = csc_states.EnabledState(self.subsystem_tag)
+            self.states["FAULT"] = csc_states.FaultState(self.subsystem_tag)
+            self.states["INITIAL"] = self.states["STANDBY"]
+            self.states["FINAL"] = self.states["ENABLED"]
 
         # Useful debug logging
         self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
@@ -96,7 +97,7 @@ class Context:
             rejected_state = kwargs.get('rejected_state')
             next_state = states.next_state[rejected_state]
             self.myData[eventname].commandValue = states.state_enumeration[next_state] # CHECK THIS OUT
-            self.myData[eventname].detailedState = states.state_enumeration[self.current_state] 
+            self.myData[eventname].detailedState = states.state_enumeration[self.current_state]
 
         # Override from kwargs
         for key in kwargs:
@@ -122,40 +123,54 @@ class Context:
         self.mgr[eventname].salEvent("{}_logevent_{}".format(self.subsystem_tag, eventname))
         self.logEvent[eventname] = getattr(self.mgr[eventname],'logEvent_{}'.format(eventname))
         self.myData[eventname] = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.subsystem_tag, eventname))()
-            
+
         self.myData_keys[eventname] = [a[0] for a in inspect.getmembers(self.myData[eventname]) if not(a[0].startswith('__') and a[0].endswith('__'))]
         self.log.info('Initializing: {}_logevent_{}'.format(self.subsystem_tag, eventname))
-        
+
     def get_current_state(self):
         """
         Function to get the current state
 
         :return:
         """
-        return self.current_state
+        return self.model.state
 
     def validate_transition(self, new_state):
 
         return validate_transition(self.current_state, new_state)
 
-    def make_transition(self, new_state):
+    def execute_command(self, command):
 
-        if not self.validate_transition(new_state):
-            raise Exception("Cannot perform transition: {} --> {}".format(self.current_state, new_state))
-        else:
-            self.states[self.current_state].sleep()
-            self.current_state = new_state
-            self.states[new_state].wake()
+        # Get the current state from the model, the model only stores the string
+        # representation. Not the actual state model, that is stored on states.
+        current_state = self.states[self.model.state]
 
+        if command == "ENTERCONTROL":
+            current_state.enter_control(self.model)
+
+        elif command == "START":
+            current_state.start(self.model)
+
+        elif command == "ENABLE":
+            current_state.enable(self.model)
+
+        elif command == "DISABLE":
+            current_state.disable(self.model)
+
+        elif command == "STANDBY":
+            current_state.go_to_standby(self.model)
+
+        elif command == "EXITCONTROL":
+            current_state.exit(self.model)
 
 class DDSController(threading.Thread):
     """Class to subscribe and react to Commands for a Context.
-    
-    The DDSController requires a Context be passed into it. This is so that the 
-    command this DDSController is created to watch can delegate the action to 
-    the Context. When a DDSController object recieves a trigger over SAL, it 
-    will delegate this action to the Context. The Context then delegates the 
-    action to the current state. DDSController is very similar to DDSSubcriber, 
+
+    The DDSController requires a Context be passed into it. This is so that the
+    command this DDSController is created to watch can delegate the action to
+    the Context. When a DDSController object recieves a trigger over SAL, it
+    will delegate this action to the Context. The Context then delegates the
+    action to the current state. DDSController is very similar to DDSSubcriber,
     but the difference is that this one can send the acks to the Commands.
 
     A note on DDSController creation: When the SAL library creates commands
@@ -164,22 +179,22 @@ class DDSController(threading.Thread):
                    [subsystem_tag]_command_[command name]
 
     For example, the command "enterControl" for the subsystem tag "scheduler"
-    would be called "scheduler_command_enterControl" on the EFDB database. A 
+    would be called "scheduler_command_enterControl" on the EFDB database. A
     DDSController object can be created by either defining the full topic name,
-    or by defining a subsystem tag and command name. 
+    or by defining a subsystem tag and command name.
 
     Attributes:
-        command: String of the command for this DDSController to watch. Must 
+        command: String of the command for this DDSController to watch. Must
         match the exact name of the command defined within the EFDB Topic tag.
-        subsystem_tag: A string of the name of the CSC we want. Must exactly 
+        subsystem_tag: A string of the name of the CSC we want. Must exactly
         match the Subsystem Tag defined in XML. Link to current Subsystem Tags
         https://stash.lsstcorp.org/projects/TS/repos/ts_xml/browse/sal_interfaces
         topic: Name of the complete topic we wish to subscribe to. If left empty
-        we use the command and subsytem_tag. 
+        we use the command and subsytem_tag.
     """
     def __init__(self, context, command=None, topic=None, threadID='1', tsleep=0.5):
-        
-        # Either a command or topic need to be defined to tell this 
+
+        # Either a command or topic need to be defined to tell this
         # DDSController what topic to subscribe and react to.
         if command is None and topic is None:
             raise ValueError("Either command or topic must be defined")
@@ -196,13 +211,13 @@ class DDSController(threading.Thread):
         self.tsleep = tsleep
         self.context = context
         self.daemon = True
-        
+
         # Create a logger
         self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
 
         # Store to which state this command is going to move up, using the states.next_state dictionary
         self.next_state = csc_states.next_state[self.COMMAND]
-        
+
         # Subscribe
         self.subscribe()
 
@@ -244,34 +259,12 @@ class DDSController(threading.Thread):
             time.sleep(self.tsleep)
 
     def reply_to_transition(self, cmdid):
-
-        # Check if valid transition
-        # if validate_transition(self.State.current_state, self.next_state):
-        if self.context.validate_transition(self.next_state):
-            self.log.info("VALID TRANSITION: {} --> {}".format(self.context.current_state, self.next_state))
-            # Send the ACK
-            self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
-            # Update the current state
-            self.context.make_transition(self.next_state)
-            # self.State.current_state = self.next_state
-
-            # if self.COMMAND == 'ENTERCONTROL':
-            #     # self.State.send_logEvent("SettingVersions", package_versions='master')
-            #     self.State.send_logEvent('SummaryState')
-            # elif self.COMMAND == 'START':
-            #     # Extract 'myData.configure' for START, eventually we
-            #     # will apply the setting for this configuration, for now we
-            #     LOGGER.info("From {} received configure: {}".format(self.COMMAND,self.myData.configure))
-            #     # Here we should apply the setting in the future
-            #     self.State.send_logEvent('SettingsApplied')
-            #     self.State.send_logEvent('AppliedSettingsMatchStart',appliedSettingsMatchStartIsTrue=1)
-            #     self.State.send_logEvent('SummaryState')
-            # else:
-            #     self.State.send_logEvent('SummaryState')
-        else:
-            self.log.warning("INVALID TRANSITION: {} --> {}".format(self.context.current_state, self.next_state))
-            self.context.send_logEvent('RejectedCommand', rejected_state=self.COMMAND)
-
+        
+        # Send the ACK
+        self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
+        # Update the current state
+        self.context.execute_command(self.COMMAND)
+          
 def validate_transition(current_state, new_state):
     """
     Stand-alone function to validate transition. It returns true/false
@@ -283,7 +276,7 @@ def validate_transition(current_state, new_state):
         LOGGER.info("Transition from {} --> {} is VALID".format(current_state, new_state))
     else:
         LOGGER.info("Transition from {} --> {} is INVALID".format(current_state, new_state))
-    return transition_is_valid 
+    return transition_is_valid
 
 
 class DDSSubcriber(threading.Thread):
@@ -301,7 +294,7 @@ class DDSSubcriber(threading.Thread):
         self.nkeep   = nkeep
         self.daemon = True
         self.subscribe()
-        
+
     def subscribe(self):
 
         # This section does the equivalent of:
@@ -336,7 +329,7 @@ class DDSSubcriber(threading.Thread):
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr,'acceptCommand_{}'.format(self.topic))
             LOGGER.info("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
-            
+
     def run(self):
         ''' The run method for the threading'''
         self.myDatalist = []
@@ -360,8 +353,8 @@ class DDSSubcriber(threading.Thread):
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newTelem = True
             time.sleep(self.tsleep)
-        return 
-    
+        return
+
     def run_Event(self):
         while True:
             retval = self.getEvent(self.myData)
@@ -370,7 +363,7 @@ class DDSSubcriber(threading.Thread):
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newEvent = True
             time.sleep(self.tsleep)
-        return 
+        return
     def run_Command(self):
         while True:
             self.cmdId = self.acceptCommand(self.myData)
@@ -379,7 +372,7 @@ class DDSSubcriber(threading.Thread):
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newCommand = True
             time.sleep(self.tsleep)
-        return 
+        return
 
     def getCurrent(self):
         if len(self.myDatalist) > 0:
@@ -395,13 +388,13 @@ class DDSSubcriber(threading.Thread):
 
     def getCurrentTelemetry(self):
         return self.getCurrent()
-    
+
     def getCurrentEvent(self):
         return self.getCurrent()
 
     def getCurrentCommand(self):
         return self.getCurrent()
-    
+
     def waitEvent(self,tsleep=None,timeout=None):
 
         """ Loop for waiting for new event """
@@ -409,12 +402,12 @@ class DDSSubcriber(threading.Thread):
             tsleep = self.tsleep
         if not timeout:
             timeout = self.timeout
-            
+
         t0 =  time.time()
         while not self.newEvent:
             sys.stdout.flush()
             sys.stdout.write("Wating for %s event.. [%s]" % (self.topic, spinner.next()))
-            sys.stdout.write('\r') 
+            sys.stdout.write('\r')
             if time.time() - t0 > timeout:
                 LOGGER.info("WARNING: Timeout reading for Event %s" % self.topic)
                 self.newEvent = False
@@ -443,7 +436,7 @@ class DDSSend(threading.Thread):
         self.sleeptime = sleeptime
         self.timeout = timeout
         self.Device = Device
-        LOGGER.info("Loading Device: {}".format(self.Device)) 
+        LOGGER.info("Loading Device: {}".format(self.Device))
         # Load SALPY_lib into the class
         self.SALPY_lib = load_SALPYlib(self.Device)
 
@@ -479,7 +472,7 @@ class DDSSend(threading.Thread):
         # 2) waitForCompletion -- this can be run separately
         self.issueCommand = getattr(mgr,'issueCommand_{}'.format(cmd))
         self.waitForCompletion = getattr(mgr,'waitForCompletion_{}'.format(cmd))
-        LOGGER.info("Issuing command: {}".format(cmd)) 
+        LOGGER.info("Issuing command: {}".format(cmd))
         self.cmdId = self.issueCommand(myData)
         self.cmdId_time = time.time()
         if wait_command:
@@ -487,13 +480,13 @@ class DDSSend(threading.Thread):
             self.waitForCompletion_Command()
         else:
             LOGGER.info("Will NOT wait Command Completion")
-        return self.cmdId 
-            
+        return self.cmdId
+
     def waitForCompletion_Command(self):
-        LOGGER.info("Wait {} sec for Completion: {}".format(self.timeout,self.cmd)) 
+        LOGGER.info("Wait {} sec for Completion: {}".format(self.timeout,self.cmd))
         retval = self.waitForCompletion(self.cmdId,self.timeout)
-        LOGGER.info("Done: {}".format(self.cmd)) 
-        
+        LOGGER.info("Done: {}".format(self.cmd))
+
     def ackCommand(self,cmd,cmdId):
         """ Just send the ACK for a command, it need the cmdId as input"""
         LOGGER.info("Sending ACK for Id: {} for Command: {}".format(cmdId,cmd))
@@ -512,10 +505,10 @@ class DDSSend(threading.Thread):
             if cmdId > 0:
                 time.sleep(1)
                 break
-        cmdId = acceptCommand(myData)            
+        cmdId = acceptCommand(myData)
         LOGGER.info("Accpeting cmdId: {} for Command: {}".format(cmdId,cmd))
         return cmdId
-    
+
     def send_Event(self,event,**kwargs):
         ''' Send an Event from a Device'''
 
@@ -532,9 +525,9 @@ class DDSSend(threading.Thread):
         name = "{}_logevent_{}".format(self.Device,event)
         mgr.salEvent("{}_logevent_{}".format(self.Device,event))
         logEvent = getattr(mgr,'logEvent_{}'.format(event))
-        LOGGER.info("Sending Event: {}".format(event)) 
+        LOGGER.info("Sending Event: {}".format(event))
         logEvent(myData, priority)
-        LOGGER.info("Done: {}".format(event)) 
+        LOGGER.info("Done: {}".format(event))
         time.sleep(sleeptime)
 
     def send_Telemetry(self,topic,**kwargs):
@@ -551,9 +544,9 @@ class DDSSend(threading.Thread):
         mgr = self.get_mgr()
         mgr.salTelemetryPub("{}_{}".format(self.Device,topic))
         putSample = getattr(mgr,'putSample_{}'.format(topic))
-        LOGGER.info("Sending Telemetry: {}".format(topic)) 
+        LOGGER.info("Sending Telemetry: {}".format(topic))
         putSample(myData)
-        LOGGER.info("Done: {}".format(topic)) 
+        LOGGER.info("Done: {}".format(topic))
         time.sleep(sleeptime)
 
     @staticmethod
@@ -574,13 +567,13 @@ class DDSSend(threading.Thread):
         for key in myData_keys:
             myData_dic[key] =  getattr(self.myData,key)
         return myData_dic
-    
+
 def command_sequencer(commands,Device='atHeaderService',wait_time=1, sleep_time=3):
 
     """
     Stand-alone function to send a sequence of OCS Commands
     """
-    
+
     # We get the equivalent of:
     #  mgr = SALPY_atHeaderService.SAL_atHeaderService()
     # Load (if not in globals already) SALPY_{deviceName}
@@ -597,17 +590,13 @@ def command_sequencer(commands,Device='atHeaderService',wait_time=1, sleep_time=
         # If Start we send some non-sense value
         if cmd == 'Start':
             myData[cmd].configure = 'blah.json'
-        
+
     for cmd in commands:
-        LOGGER.info("Issuing command: {}".format(cmd)) 
-        LOGGER.info("Wait for Completion: {}".format(cmd)) 
+        LOGGER.info("Issuing command: {}".format(cmd))
+        LOGGER.info("Wait for Completion: {}".format(cmd))
         cmdId = issueCommand[cmd](myData[cmd])
         waitForCompletion[cmd](cmdId,wait_time)
-        LOGGER.info("Done: {}".format(cmd)) 
+        LOGGER.info("Done: {}".format(cmd))
         time.sleep(sleep_time)
 
     return
-
-
-    
-

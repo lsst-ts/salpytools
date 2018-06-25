@@ -22,14 +22,14 @@ next_state["SET_VALUE"] = "ENABLE"
 next_state["ABORT"] = "DISABLE"
 next_state["STOP"] = "DISABLE"
 # Aliases
-next_state["ENTERCONTROL"] = next_state["ENTER_CONTROL"] 
-next_state["EXITCONTROL"] = next_state["EXIT_CONTROL"] 
+next_state["ENTERCONTROL"] = next_state["ENTER_CONTROL"]
+next_state["EXITCONTROL"] = next_state["EXIT_CONTROL"]
 
 
 summary_state_enum = {'DISABLE':0,
-                      'ENABLE':1, 
-                      'FAULT':2, 
-                      'OFFLINE':3, 
+                      'ENABLE':1,
+                      'FAULT':2,
+                      'OFFLINE':3,
                       'STANDBY':4}
 
 state_enumeration = {}
@@ -46,7 +46,7 @@ state_enumeration["FINAL"] =   6
 #    \NEXT STATE
 #STATE\
 #      \ |Offline |Standby |Disabled|Enabled |Fault   |Initial |Final   |
-#------------------------------------------------------------------------ 
+#------------------------------------------------------------------------
 #Offline | TRUE   | TRUE   |        |        |        |        |  TRUE  |
 #------------------------------------------------------------------------
 #Standby |  TRUE  | TRUE   |  TRUE  |        |  TRUE  |        |  TRUE  |
@@ -63,7 +63,7 @@ state_enumeration["FINAL"] =   6
 #------------------------------------------------------------------------
 
 w, h = 7, 7;
-state_matrix = [[False for x in range(w)] for y in range(h)] 
+state_matrix = [[False for x in range(w)] for y in range(h)]
 state_matrix[0][6] = True
 state_matrix[0][1] = True
 state_matrix[1][6] = True
@@ -77,7 +77,7 @@ state_matrix[3][2] = True
 state_matrix[3][4] = True
 state_matrix[5][1] = True
 
-# Set up same state transitions as allowed 
+# Set up same state transitions as allowed
 state_matrix[0][0] = True
 state_matrix[1][1] = True
 state_matrix[2][2] = True
@@ -163,40 +163,58 @@ class DefaultState:
         self.log.debug('State waking')
         self.send_logEvent('SummaryState')
 
-class StandbyState(DefaultState):
+    #<----- Default State methods corresponding to UML design under here ------>
+
+    def disable(self, model):
+        print("Cannot transition to Disbale state")
+
+    def enable(self, model):
+        print("Cannot transition to Enable state")
 
     def exit(self, model):
-        pass
-
-    def on_heartbeat(self, model):
-        pass
-
-    def start(self, model):
-        pass
-
-class FaultState(DefaultState):
+        print("Cannot transition to Exit state")
 
     def go_to_standby(self, model):
-        pass
+        print("Cannot transition to Standby state")
+
+    def start(self, model):
+        print("Cannot transition to Start state")
+
+    def enter_control(self, model):
+        print("Cannot transition to Start state")
+
+class OfflineState(DefaultState):
+
+    def __init__(self, device, events=('SummaryState',), tsleep=0.5):
+        super(OfflineState, self).__init__('OFFLINE', device, events, tsleep)
+
+    def enter_control(self, model):
+        model.change_state("STANDBY")
+
+class StandbyState(DefaultState):
+
+    def __init__(self, device, events=('SummaryState',), tsleep=0.5):
+        super(StandbyState, self).__init__('STANDBY', device, events, tsleep)
+
+    def exit(self, model):
+        model.change_state("OFFLINE")
+
+    def start(self, model):
+        model.change_state("DISABLED")
 
     def on_heartbeat(self, model):
         pass
-
-    def on_incoming_messaging_error(self, model):
-        pass
-
-    def on interup_end_loop(self, error):
-
-class OfflineState(DefaultState):
-    pass
 
 class DisabledState(DefaultState):
 
+    def __init__(self, device, events=('SummaryState',), tsleep=0.5):
+        super(DisabledState, self).__init__('DISABLED', device, events, tsleep)
+
     def enable(self, model):
-        pass
+        model.change_state("ENABLED")
 
     def go_to_standby(self, model):
-        pass
+        model.change_state("STANDBY")
 
     def on_heartbeat(self, model):
         pass
@@ -212,8 +230,11 @@ class DisabledState(DefaultState):
 
 class EnabledState(DefaultState):
 
+    def __init__(self, device, events=('SummaryState',), tsleep=0.5):
+        super(EnabledState, self).__init__('ENABLED', device, events, tsleep)
+
     def disable(self, model):
-        pass
+        model.change_state("DISABLED")
 
     def on_hearbeat(self, model):
         pass
@@ -225,11 +246,21 @@ class EnabledState(DefaultState):
         pass
 
     def on_interrupt_process_triggers(self, model):
+        pass
 
+class FaultState(DefaultState):
 
+    def __init__(self, device, events=('SummaryState',), tsleep=0.5):
+        super(FaultState, self).__init__('FAULT', device, events, tsleep)
 
+    def go_to_standby(self, model):
+        model.change_state("STANDBY")
 
+    def on_heartbeat(self, model):
+        pass
 
+    def on_incoming_messaging_error(self, model):
+        pass
 
-
-
+    def on_interrupt_end_loop(self, error):
+        pass
