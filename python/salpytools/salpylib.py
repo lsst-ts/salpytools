@@ -140,9 +140,19 @@ class Context:
         return validate_transition(self.current_state, new_state)
 
     def execute_command(self, command):
+        """This method delegates commands recieved by a DDSController to the
+        state. 
 
-        # Get the current state from the model, the model only stores the string
-        # representation. Not the actual state model, that is stored on states.
+        The model is passed so that the State object may call methods on
+        it. Also the state is stored on the model only as a string
+        representation. The actual state object is stored on this context
+        object as self.states. 
+
+        Attributes:
+            command: A string representation of the command recieved by a
+            DDSController object.
+        """
+
         current_state = self.states[self.model.state]
 
         if command == "ENTERCONTROL":
@@ -259,10 +269,19 @@ class DDSController(threading.Thread):
             time.sleep(self.tsleep)
 
     def reply_to_transition(self, cmdid):
-        
-        # Send the ACK
+        """Delegate the command revcieved to the Context object.
+
+        When creating a DDSController object we pass a Context object upon
+        instantiation. This allows a DDSController object to effectively call
+        methods on the Context, which the Context then delegates the current
+        State. By State design pattern, we are letting the states do all error
+        handling and state transition rejections.
+
+        Attributes:
+            cmdid: ID handle of the command this DDSController is watching.
+        """
+
         self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
-        # Update the current state
         self.context.execute_command(self.COMMAND)
           
 def validate_transition(current_state, new_state):
