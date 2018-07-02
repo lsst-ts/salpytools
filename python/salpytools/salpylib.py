@@ -331,7 +331,7 @@ class DDSSubcriber(threading.Thread):
         self.mgr = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
 
         if self.Stype=='Telemetry':
-            self.myData = getattr(SALPY_lib,'{}_{}C'.format(self.Device,self.topic))()
+            self.myData = getattr(self.SALPY_lib,'{}_{}C'.format(self.Device,self.topic))()
             self.mgr.salTelemetrySub("{}_{}".format(self.Device,self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
             self.getNextSample = getattr(self.mgr,"getNextSample_{}".format(self.topic))
@@ -343,7 +343,7 @@ class DDSSubcriber(threading.Thread):
             self.getEvent = getattr(self.mgr,'getEvent_{}'.format(self.topic))
             LOGGER.info("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
         elif self.Stype=='Command':
-            self.myData = getattr(SALPY_lib,'{}_command_{}C'.format(self.Device,self.topic))()
+            self.myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,self.topic))()
             self.mgr.salProcessor("{}_command_{}".format(self.Device,self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr,'acceptCommand_{}'.format(self.topic))
@@ -505,6 +505,7 @@ class DDSSend(threading.Thread):
         LOGGER.info("Wait {} sec for Completion: {}".format(self.timeout,self.cmd))
         retval = self.waitForCompletion(self.cmdId,self.timeout)
         LOGGER.info("Done: {}".format(self.cmd))
+        return retval
 
     def ackCommand(self,cmd,cmdId):
         """ Just send the ACK for a command, it need the cmdId as input"""
