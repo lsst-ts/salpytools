@@ -466,11 +466,11 @@ class DDSSend:
         mgr = getattr(self.SALPY_lib,'SAL_{}'.format(self.Device))()
         return mgr
 
-    def send_Command(self,cmd,**kwargs):
+    def send_Command(self, cmd, **kwargs):
         ''' Send a Command to a Device'''
-        timeout   = int(kwargs.pop('timeout',self.timeout))
-        sleeptime = kwargs.pop('sleeptime',self.sleeptime)
-        wait_command = kwargs.pop('wait_command',False)
+        timeout = int(kwargs.pop('timeout', self.timeout))
+        sleeptime = kwargs.pop('sleeptime', self.sleeptime)
+        wait_command = kwargs.pop('wait_command', False)
 
         # Get the mgr handle
         mgr = self.get_mgr()
@@ -481,15 +481,15 @@ class DDSSend:
         myData = self.update_myData(myData,**kwargs)
         # Make it visible outside
         self.myData = myData
-        self.cmd    = cmd
+        self.cmd = cmd
         self.timeout = timeout
         # For a Command we need the functions:
         # 1) issueCommand
         # 2) waitForCompletion -- this can be run separately
-        self.issueCommand = getattr(mgr,'issueCommand_{}'.format(cmd))
-        self.waitForCompletion = getattr(mgr,'waitForCompletion_{}'.format(cmd))
+        self.issueCommand = getattr(mgr, 'issueCommand_{}'.format(cmd))
+        self.waitForCompletion = getattr(mgr, 'waitForCompletion_{}'.format(cmd))
         LOGGER.info("Issuing command: {}".format(cmd))
-        self.cmdId = self.issueCommand(myData)
+        self.cmdId = self.issueCommand(self.myData)
         self.cmdId_time = time.time()
         if wait_command:
             LOGGER.info("Will wait for Command Completion")
