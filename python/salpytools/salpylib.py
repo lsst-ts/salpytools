@@ -452,6 +452,10 @@ class DDSSend:
         self.sleeptime = sleeptime
         self.timeout = timeout
         self.Device = Device
+        self.cmd = ''
+        self.myData = {}
+        self.issueCommand = {}
+        self.waitForCompletion = {}
         LOGGER.info("Loading Device: {}".format(self.Device))
         # Load SALPY_lib into the class
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
@@ -478,18 +482,21 @@ class DDSSend:
         # Get the myData object
         myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd))()
         LOGGER.info('Updating myData object with kwargs')
-        myData = self.update_myData(myData,**kwargs)
+        self.myData[cmd] = self.update_myData(myData, **kwargs)
         # Make it visible outside
-        self.myData = myData
         self.cmd = cmd
+        self.myData[cmd] = myData
+
         self.timeout = timeout
         # For a Command we need the functions:
         # 1) issueCommand
         # 2) waitForCompletion -- this can be run separately
-        self.issueCommand = getattr(mgr, 'issueCommand_{}'.format(cmd))
-        self.waitForCompletion = getattr(mgr, 'waitForCompletion_{}'.format(cmd))
+        if cmd not in self.issueCommand:
+            self.issueCommand[cmd] = getattr(mgr, 'issueCommand_{}'.format(cmd))
+            self.waitForCompletion[cmd] = getattr(mgr, 'waitForCompletion_{}'.format(cmd))
+            
         LOGGER.info("Issuing command: {}".format(cmd))
-        self.cmdId = self.issueCommand(self.myData)
+        self.cmdId = self.issueCommand[cmd](self.myData[cmd])
         self.cmdId_time = time.time()
         if wait_command:
             LOGGER.info("Will wait for Command Completion")
