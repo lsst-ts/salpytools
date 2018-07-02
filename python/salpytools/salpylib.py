@@ -439,7 +439,7 @@ class DDSSubcriber(threading.Thread):
         self.newEvent=False
 
 
-class DDSSend(threading.Thread):
+class DDSSend:
 
     '''
     Class to generate/send Telemetry, Events or Commands.
@@ -448,10 +448,7 @@ class DDSSend(threading.Thread):
     For Events/Telemetry, the same object can be re-used for a given Device,
     '''
 
-    def __init__(self, Device, sleeptime=1,timeout=5, threadID=1):
-        threading.Thread.__init__(self)
-        self.daemon = True
-        self.threadID = threadID
+    def __init__(self, Device, sleeptime=1, timeout=5):
         self.sleeptime = sleeptime
         self.timeout = timeout
         self.Device = Device
