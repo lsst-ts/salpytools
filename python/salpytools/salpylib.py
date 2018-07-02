@@ -327,7 +327,7 @@ class DDSSubcriber(threading.Thread):
         self.newEvent = False
 
         # Load (if not in globals already) SALPY_{deviceName} into class
-        self.SALPY_lib = load_SALPYlib(self.Device)
+        self.SALPY_lib = SALPY_lib = import_module('SALPY_{}'.format(self.Device))
         self.mgr = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
 
         if self.Stype=='Telemetry':
@@ -457,7 +457,7 @@ class DDSSend(threading.Thread):
         self.Device = Device
         LOGGER.info("Loading Device: {}".format(self.Device))
         # Load SALPY_lib into the class
-        self.SALPY_lib = load_SALPYlib(self.Device)
+        self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
 
     def run(self):
         ''' Function for threading'''
@@ -575,6 +575,7 @@ class DDSSend(threading.Thread):
         myData_keys = [a[0] for a in inspect.getmembers(myData) if not(a[0].startswith('__') and a[0].endswith('__'))]
         for key in kwargs:
             if key in myData_keys:
+                LOGGER.info('{} = {}'.format(key, kwargs.get(key)))
                 setattr(myData,key,kwargs.get(key))
             else:
                 LOGGER.info('key {} not in myData'.format(key))
