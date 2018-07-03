@@ -468,8 +468,7 @@ class DDSSend:
             if 'command' in member[0]:
                 cmd_name = member[0].split('command_')[-1][:-1]
                 self.issueCommand[cmd_name] = getattr(self.manager, 'issueCommand_{}'.format(cmd_name))
-                self.myData[cmd_name] = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd_name))()
-                self.manager.salProcessor("{}_command_{}".format(self.Device, cmd_name))
+                self.myData[cmd_name] = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device, cmd_name))()
 
     def run(self):
         ''' Function for threading'''
@@ -503,14 +502,18 @@ class DDSSend:
         # 2) waitForCompletion -- this can be run separately
 
         LOGGER.info("Issuing command: {}".format(cmd))
+        self.manager.salProcessor("{}_command_{}".format(self.Device, cmd))
+
         self.cmdId = self.issueCommand[cmd](self.myData[cmd])
-        self.cmdId_time = time.time()
-        if wait_command:
-            LOGGER.info("Will wait for Command Completion")
-            self.waitForCompletion_Command()
-        else:
-            LOGGER.info("Will NOT wait Command Completion")
-        return self.cmdId
+        self.retval = self.waitForCompletion[cmd](self.cmdId, self.timeout)
+
+        # self.cmdId_time = time.time()
+        # if wait_command:
+        #     LOGGER.info("Will wait for Command Completion")
+        #     self.waitForCompletion_Command()
+        # else:
+        #     LOGGER.info("Will NOT wait Command Completion")
+        return self.cmdId, self.retval
 
     def waitForCompletion_Command(self):
         LOGGER.info("Wait {} sec for Completion: {}".format(self.timeout,self.cmd))
