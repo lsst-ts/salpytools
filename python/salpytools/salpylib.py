@@ -469,6 +469,7 @@ class DDSSend:
                 cmd_name = member[0].split('command_')[-1][:-1]
                 self.issueCommand[cmd_name] = getattr(self.manager, 'issueCommand_{}'.format(cmd_name))
                 self.myData[cmd_name] = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd_name))()
+                self.manager.salProcessor("{}_command_{}".format(self.Device, cmd_name))
 
     def run(self):
         ''' Function for threading'''
