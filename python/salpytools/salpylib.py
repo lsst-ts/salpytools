@@ -458,8 +458,9 @@ class DDSSend:
         self.waitForCompletion = {}
         LOGGER.info("Loading Device: {}".format(self.Device))
         # Load SALPY_lib into the class
-        self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
+        self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
+
         # inspect and get valid commands:
         members = inspect.getmembers(self.SALPY_lib)
 
