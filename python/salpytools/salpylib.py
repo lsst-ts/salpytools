@@ -468,6 +468,7 @@ class DDSSend:
             if 'command' in member[0]:
                 cmd_name = member[0].split('command_')[-1][:-1]
                 self.issueCommand[cmd_name] = getattr(self.manager, 'issueCommand_{}'.format(cmd_name))
+                self.waitForCompletion[cmd_name] = getattr(self.manager, 'waitForCompletion_{}'.format(cmd_name))
                 self.myData[cmd_name] = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device, cmd_name))()
 
     def run(self):
