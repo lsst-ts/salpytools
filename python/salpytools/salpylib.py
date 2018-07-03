@@ -458,17 +458,26 @@ class DDSSend:
         self.waitForCompletion = {}
         LOGGER.info("Loading Device: {}".format(self.Device))
         # Load SALPY_lib into the class
+        self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
+        # inspect and get valid commands:
+        members = inspect.getmembers(self.SALPY_lib)
+
+        for member in members:
+            if 'command' in member[0]:
+                cmd_name = member[0].split('command_')[-1][:-1]
+                self.issueCommand[cmd_name] = getattr(self.manager, 'issueCommand_{}'.format(cmd_name))
+                self.myData[cmd_name] = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd_name))()
 
     def run(self):
         ''' Function for threading'''
         self.waitForCompletion_Command()
 
-    def get_mgr(self):
-        # We get the equivalent of:
-        #  mgr = SALPY_atHeaderService.SAL_atHeaderService()
-        mgr = getattr(self.SALPY_lib,'SAL_{}'.format(self.Device))()
-        return mgr
+    # def get_mgr(self):
+    #     # We get the equivalent of:
+    #     #  mgr = SALPY_atHeaderService.SAL_atHeaderService()
+    #     mgr = getattr(self.SALPY_lib,'SAL_{}'.format(self.Device))()
+    #     return mgr
 
     def send_Command(self, cmd, **kwargs):
         ''' Send a Command to a Device'''
@@ -477,24 +486,20 @@ class DDSSend:
         wait_command = kwargs.pop('wait_command', False)
 
         # Get the mgr handle
-        mgr = self.get_mgr()
-        mgr.salProcessor("{}_command_{}".format(self.Device,cmd))
-        # Get the myData object
-        myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd))()
+        # mgr = self.get_mgr()
+        # mgr.salProcessor("{}_command_{}".format(self.Device,cmd))
+        # # Get the myData object
+        # myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd))()
         LOGGER.info('Updating myData object with kwargs')
-        self.myData[cmd] = self.update_myData(myData, **kwargs)
+        self.update_myData(cmd, **kwargs)
         # Make it visible outside
         self.cmd = cmd
-        self.myData[cmd] = myData
 
         self.timeout = timeout
         # For a Command we need the functions:
         # 1) issueCommand
         # 2) waitForCompletion -- this can be run separately
-        if cmd not in self.issueCommand:
-            self.issueCommand[cmd] = getattr(mgr, 'issueCommand_{}'.format(cmd))
-            self.waitForCompletion[cmd] = getattr(mgr, 'waitForCompletion_{}'.format(cmd))
-            
+
         LOGGER.info("Issuing command: {}".format(cmd))
         self.cmdId = self.issueCommand[cmd](self.myData[cmd])
         self.cmdId_time = time.time()
@@ -561,7 +566,7 @@ class DDSSend:
         # Get the myData object
         myData = getattr(self.SALPY_lib,'{}_{}C'.format(self.Device,topic))()
         LOGGER.info('Updating myData object with kwargs')
-        myData = self.update_myData(myData,**kwargs)
+        self.update_myData(myData,**kwargs)
         # Make it visible outside
         self.myData = myData
         # Get the Telemetry object to send myData
@@ -573,17 +578,16 @@ class DDSSend:
         LOGGER.info("Done: {}".format(topic))
         time.sleep(sleeptime)
 
-    @staticmethod
-    def update_myData(myData,**kwargs):
+    def update_myData(self, cmd, **kwargs):
         """ Updating myData with kwargs """
-        myData_keys = [a[0] for a in inspect.getmembers(myData) if not(a[0].startswith('__') and a[0].endswith('__'))]
+        myData_keys = [a[0] for a in inspect.getmembers(self.myData[cmd]) if not(a[0].startswith('__')
+                                                                                 and a[0].endswith('__'))]
         for key in kwargs:
             if key in myData_keys:
                 LOGGER.info('{} = {}'.format(key, kwargs.get(key)))
-                setattr(myData,key,kwargs.get(key))
+                setattr(self.myData[cmd], key, kwargs.get(key))
             else:
                 LOGGER.info('key {} not in myData'.format(key))
-        return myData
 
     def get_myData(self):
         """ Make a dictionary representation of the myData C objects"""
