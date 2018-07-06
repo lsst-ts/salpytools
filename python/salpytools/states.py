@@ -10,8 +10,6 @@ import inspect
 from salpytools.utils import load_SALPYlib
 from salpytools.state_transition_exception import StateTransitionException
 
-from SALPY_scheduler import *
-
 summary_state_enum = {'DISABLE':0,
                       'ENABLE':1,
                       'FAULT':2,
