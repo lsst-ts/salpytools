@@ -302,7 +302,7 @@ class DDSSubcriber(threading.Thread):
 
     ''' Class to Subscribe to Telemetry, it could a Command (discouraged), Event or Telemetry'''
 
-    def __init__(self, Device, topic, threadID='1', Stype='Telemetry',tsleep=0.01,timeout=3600,nkeep=100):
+    def __init__(self, Device, topic, threadID='1', Stype='Telemetry', tsleep=0.01, timeout=3600, nkeep=100):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.Device = Device
@@ -602,6 +602,66 @@ class DDSSend:
         for key in myData_keys:
             myData_dic[key] =  getattr(self.myData,key)
         return myData_dic
+
+
+class DDSSubcriberContainer:
+    '''
+    This utility class will subscribe to all or a specific event from a specified controller and provide high-level
+    object-oriented access to the underlying data.
+    '''
+
+    def __init__(self, device, stype='Event', topic=None):
+
+        self.device = device
+        self.type = stype
+
+        self.subscribers = {}
+
+        self.log = create_logger(level=logging.NOTSET, name=self.device)
+
+        self.log.debug("Loading Device: {}".format(self.device))
+        # Load SALPY_lib into the class
+        self.SALPY_lib = import_module('SALPY_{}'.format(self.device))
+        self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))()
+
+        if topic is not None:
+            self.log.debug("Loading topic: {}".format(topic))
+            self.topic = [topic]
+        else:
+            # Inspect device type to get all topics
+            self.topic = []
+            self.log.debug("Loading all topics from {}".format(self.device))
+
+            # inspect and get valid commands:
+            members = inspect.getmembers(self.SALPY_lib)
+
+            def checker(_name, _type, _device):
+                if _type == 'Event' and '_logevent_' in _name:
+                    return True
+                elif ((_type == 'Telemetry') and (_device + '_' in _name) and
+                      ('_logevent_' not in _name) and ('command' not in _name)):
+                    return True
+                else:
+                    return False
+
+            break_string = '_logevent_' if self.topic == 'Event' else '_'
+
+            for member in members:
+                if checker(member[0], self.type, self.device):
+                    name = member[0].split(break_string)[-1][:-1]
+                    self.log.debug('Adding {}...'.format(name))
+                    self.topic.append(name)
+                    self.subscribers[name] = DDSSubcriber(Device=self.device,
+                                                          topic=name,
+                                                          Stype=self.type,
+                                                          threadID='{}_{}_{}'.format(self.device, self.type, name))
+                    setattr(self, name, self.subscribers[name].myData)
+
+    def __getattr__(self, item):
+        if item in self.topic:
+            return self.subscribers[item].getCurrent()
+        else:
+            raise AttributeError('No attribute ' + item)
 
 def command_sequencer(commands,Device='atHeaderService',wait_time=1, sleep_time=3):
 
