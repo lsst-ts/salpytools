@@ -651,11 +651,15 @@ class DDSSubcriberContainer:
                     name = member[0].split(break_string)[-1][:-1]
                     self.log.debug('Adding {}...'.format(name))
                     self.topic.append(name)
-                    self.subscribers[name] = DDSSubcriber(Device=self.device,
-                                                          topic=name,
-                                                          Stype=self.type,
-                                                          threadID='{}_{}_{}'.format(self.device, self.type, name))
-                    setattr(self, name, self.subscribers[name].myData)
+                    try:
+                        self.subscribers[name] = DDSSubcriber(Device=self.device,
+                                                              topic=name,
+                                                              Stype=self.type,
+                                                              threadID='{}_{}_{}'.format(self.device, self.type, name))
+                    except AttributeError:
+                        self.log.debug('Could not add {}... Skipping...'.format(name))
+                    else:
+                        setattr(self, name, self.subscribers[name].myData)
 
     def __getattr__(self, item):
         if item in self.topic:
