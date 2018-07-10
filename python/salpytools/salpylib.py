@@ -656,6 +656,7 @@ class DDSSubcriberContainer:
                                                               topic=name,
                                                               Stype=self.type,
                                                               threadID='{}_{}_{}'.format(self.device, self.type, name))
+                        self.subscribers[name].start()
                     except AttributeError:
                         self.log.debug('Could not add {}... Skipping...'.format(name))
                     else:
