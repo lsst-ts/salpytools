@@ -104,6 +104,13 @@ class DefaultState:
     def enter_control(self, model):
         raise StateTransitionException()
 
+    def exit(self, model):
+        self.log.debug("Default: exit() not implemented")
+
+    def do(self, model):
+        self.log.debug("Default: do() not implemented")
+
+
 
 class OfflineState(DefaultState):
 
@@ -115,10 +122,10 @@ class OfflineState(DefaultState):
         self.send_logEvent("SummaryState", SummaryStateValue=5)
 
     def exit(self, model):
-        print("Offline: exit() not implemented")
+        self.log.debug("Offline: exit() not implemented")
 
     def do(self, model):
-        print("Offline: do() not implemented")
+        self.log.debug("Offline: do() not implemented")
 
 
 class StandbyState(DefaultState):
@@ -135,10 +142,10 @@ class StandbyState(DefaultState):
         self.send_logEvent("SummaryState", SummaryStateValue=1)
 
     def exit(self, model):
-        print("Standby: exit() not implemented")
+        self.log.debug("Standby: exit() not implemented")
 
     def do(self, model):
-        print("Standby: do() not implemented")
+        self.log.debug("Standby: do() not implemented")
 
     def on_heartbeat(self, model):
         pass
@@ -157,10 +164,10 @@ class DisabledState(DefaultState):
         self.send_logEvent("SummaryState", SummaryStateValue=5)
 
     def exit(self, model):
-        print("Disabled: exit() not implemented")
+        self.log.debug("Disabled: exit() not implemented")
 
     def do(self, model):
-        print("Disabled: do() not implemented")
+        self.log.debug("Disabled: do() not implemented")
 
     def on_heartbeat(self, model):
         pass
@@ -184,10 +191,10 @@ class EnabledState(DefaultState):
         self.send_logEvent("SummaryState", SummaryStateValue=1)
 
     def exit(self, model):
-        print("Enabled: exit() not implemented")
+        self.log.debug("Enabled: exit() not implemented")
 
     def do(self, model):
-        print("Enabled: do() not implemented")
+        self.log.debug("Enabled: do() not implemented")
 
     def on_hearbeat(self, model):
         pass
