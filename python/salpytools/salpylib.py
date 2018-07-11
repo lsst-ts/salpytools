@@ -298,7 +298,7 @@ def validate_transition(current_state, new_state):
     return transition_is_valid
 
 
-class DDSSubcriber(threading.Thread):
+class DDSSubscriber(threading.Thread):
 
     ''' Class to Subscribe to Telemetry, it could a Command (discouraged), Event or Telemetry'''
 
@@ -307,6 +307,9 @@ class DDSSubcriber(threading.Thread):
         self.threadID = threadID
         self.Device = Device
         self.topic  = topic
+
+        self.log = create_logger(level=logging.NOTSET, name=self.Device)
+
         self.tsleep = tsleep
         self.Stype  = Stype
         self.timeout = timeout
@@ -335,19 +338,19 @@ class DDSSubcriber(threading.Thread):
             self.mgr.salTelemetrySub("{}_{}".format(self.Device,self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
             self.getNextSample = getattr(self.mgr,"getNextSample_{}".format(self.topic))
-            LOGGER.info("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
         elif self.Stype=='Event':
             self.myData = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.Device,self.topic))()
             self.mgr.salEvent("{}_logevent_{}".format(self.Device,self.topic))
             # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
             self.getEvent = getattr(self.mgr,'getEvent_{}'.format(self.topic))
-            LOGGER.info("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
         elif self.Stype=='Command':
             self.myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,self.topic))()
             self.mgr.salProcessor("{}_command_{}".format(self.Device,self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr,'acceptCommand_{}'.format(self.topic))
-            LOGGER.info("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
 
     def run(self):
         ''' The run method for the threading'''
@@ -401,7 +404,7 @@ class DDSSubcriber(threading.Thread):
         else:
             # Current = None
             # For now we're passing the empty value of the object, we might want to revise this in the future
-            LOGGER.info("WARNING: No value received for: '{}' yet, sending empty object anyway".format(self.topic))
+            self.log.warning("No value received for: '{}' yet, sending empty object anyway".format(self.topic))
             Current = self.myData
         return Current
 
@@ -428,7 +431,7 @@ class DDSSubcriber(threading.Thread):
             sys.stdout.write("Wating for %s event.. [%s]" % (self.topic, spinner.next()))
             sys.stdout.write('\r')
             if time.time() - t0 > timeout:
-                LOGGER.info("WARNING: Timeout reading for Event %s" % self.topic)
+                self.log.warning("Timeout reading for Event %s" % self.topic)
                 self.newEvent = False
                 break
             time.sleep(tsleep)
@@ -453,10 +456,11 @@ class DDSSend:
         self.timeout = timeout
         self.Device = Device
         self.cmd = ''
+        self.log = create_logger(level=logging.NOTSET, name=self.Device)
         self.myData = {}
         self.issueCommand = {}
         self.waitForCompletion = {}
-        LOGGER.info("Loading Device: {}".format(self.Device))
+        self.log.debug("Loading Device: {}".format(self.Device))
         # Load SALPY_lib into the class
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
         self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
@@ -492,7 +496,7 @@ class DDSSend:
         # mgr.salProcessor("{}_command_{}".format(self.Device,cmd))
         # # Get the myData object
         # myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,cmd))()
-        LOGGER.info('Updating myData object with kwargs')
+        self.log.debug('Updating myData object with kwargs')
         self.update_myData(cmd, **kwargs)
         # Make it visible outside
         self.cmd = cmd
@@ -502,7 +506,7 @@ class DDSSend:
         # 1) issueCommand
         # 2) waitForCompletion -- this can be run separately
 
-        LOGGER.info("Issuing command: {}".format(cmd))
+        self.log.debug("Issuing command: {}".format(cmd))
         self.manager.salProcessor("{}_command_{}".format(self.Device, cmd))
 
         self.cmdId = self.issueCommand[cmd](self.myData[cmd])
@@ -517,14 +521,14 @@ class DDSSend:
         return self.cmdId, self.retval
 
     def waitForCompletion_Command(self):
-        LOGGER.info("Wait {} sec for Completion: {}".format(self.timeout,self.cmd))
-        retval = self.waitForCompletion(self.cmdId,self.timeout)
-        LOGGER.info("Done: {}".format(self.cmd))
+        self.log.debug("Wait {} sec for Completion: {}".format(self.timeout,self.cmd))
+        retval = self.waitForCompletion(self.cmdId, self.timeout)
+        self.log.debug("Done: {}".format(self.cmd))
         return retval
 
     def ackCommand(self,cmd,cmdId):
         """ Just send the ACK for a command, it need the cmdId as input"""
-        LOGGER.info("Sending ACK for Id: {} for Command: {}".format(cmdId,cmd))
+        self.log.debug("Sending ACK for Id: {} for Command: {}".format(cmdId,cmd))
         mgr = self.get_mgr()
         mgr.salProcessor("{}_command_{}".format(self.Device,cmd))
         ackCommand = getattr(mgr,'ackCommand_{}'.format(cmd))
@@ -541,7 +545,7 @@ class DDSSend:
                 time.sleep(1)
                 break
         cmdId = acceptCommand(myData)
-        LOGGER.info("Accpeting cmdId: {} for Command: {}".format(cmdId,cmd))
+        self.log.debug("Accpeting cmdId: {} for Command: {}".format(cmdId,cmd))
         return cmdId
 
     def send_Event(self,event,**kwargs):
@@ -551,7 +555,7 @@ class DDSSend:
         priority  = kwargs.get('priority',1)
 
         myData = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.Device,event))()
-        LOGGER.info('Updating myData object with kwargs')
+        self.log.debug('Updating myData object with kwargs')
         myData = self.update_myData(myData,**kwargs)
         # Make it visible outside
         self.myData = myData
@@ -560,9 +564,9 @@ class DDSSend:
         name = "{}_logevent_{}".format(self.Device,event)
         mgr.salEvent("{}_logevent_{}".format(self.Device,event))
         logEvent = getattr(mgr,'logEvent_{}'.format(event))
-        LOGGER.info("Sending Event: {}".format(event))
+        self.log.debug("Sending Event: {}".format(event))
         logEvent(myData, priority)
-        LOGGER.info("Done: {}".format(event))
+        self.log.debug("Done: {}".format(event))
         time.sleep(sleeptime)
 
     def send_Telemetry(self,topic,**kwargs):
@@ -571,7 +575,7 @@ class DDSSend:
         sleeptime = kwargs.pop('sleep_time',self.sleeptime)
         # Get the myData object
         myData = getattr(self.SALPY_lib,'{}_{}C'.format(self.Device,topic))()
-        LOGGER.info('Updating myData object with kwargs')
+        self.log.debug('Updating myData object with kwargs')
         self.update_myData(myData,**kwargs)
         # Make it visible outside
         self.myData = myData
@@ -579,9 +583,9 @@ class DDSSend:
         mgr = self.get_mgr()
         mgr.salTelemetryPub("{}_{}".format(self.Device,topic))
         putSample = getattr(mgr,'putSample_{}'.format(topic))
-        LOGGER.info("Sending Telemetry: {}".format(topic))
+        self.log.debug("Sending Telemetry: {}".format(topic))
         putSample(myData)
-        LOGGER.info("Done: {}".format(topic))
+        self.log.debug("Done: {}".format(topic))
         time.sleep(sleeptime)
 
     def update_myData(self, cmd, **kwargs):
@@ -590,10 +594,10 @@ class DDSSend:
                                                                                  and a[0].endswith('__'))]
         for key in kwargs:
             if key in myData_keys:
-                LOGGER.info('{} = {}'.format(key, kwargs.get(key)))
+                self.log.debug('{} = {}'.format(key, kwargs.get(key)))
                 setattr(self.myData[cmd], key, kwargs.get(key))
             else:
-                LOGGER.info('key {} not in myData'.format(key))
+                self.log.debug('key {} not in myData'.format(key))
 
     def get_myData(self):
         """ Make a dictionary representation of the myData C objects"""
@@ -604,7 +608,7 @@ class DDSSend:
         return myData_dic
 
 
-class DDSSubcriberContainer:
+class DDSSubscriberContainer:
     '''
     This utility class will subscribe to all or a specific event from a specified controller and provide high-level
     object-oriented access to the underlying data.
@@ -652,10 +656,10 @@ class DDSSubcriberContainer:
                     self.log.debug('Adding {}...'.format(name))
                     self.topic.append(name)
                     try:
-                        self.subscribers[name] = DDSSubcriber(Device=self.device,
-                                                              topic=name,
-                                                              Stype=self.type,
-                                                              threadID='{}_{}_{}'.format(self.device, self.type, name))
+                        self.subscribers[name] = DDSSubscriber(Device=self.device,
+                                                               topic=name,
+                                                               Stype=self.type,
+                                                               threadID='{}_{}_{}'.format(self.device, self.type, name))
                         self.subscribers[name].start()
                     except AttributeError:
                         self.log.debug('Could not add {}... Skipping...'.format(name))
