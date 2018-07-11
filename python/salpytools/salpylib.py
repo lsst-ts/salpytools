@@ -64,11 +64,11 @@ class Context:
         else:
             # Loading default states
             self.states = dict()
-            self.states["OFFLINE"] = csc_states.OfflineState(self.subsystem_tag, self.model)
-            self.states["STANDBY"] = csc_states.StandbyState(self.subsystem_tag, self.model)
-            self.states["DISABLED"] = csc_states.DisabledState(self.subsystem_tag, self.model)
-            self.states["ENABLED"] = csc_states.EnabledState(self.subsystem_tag, self.model)
-            self.states["FAULT"] = csc_states.FaultState(self.subsystem_tag, self.model)
+            self.states["OFFLINE"] = csc_states.OfflineState(self.subsystem_tag)
+            self.states["STANDBY"] = csc_states.StandbyState(self.subsystem_tag)
+            self.states["DISABLED"] = csc_states.DisabledState(self.subsystem_tag)
+            self.states["ENABLED"] = csc_states.EnabledState(self.subsystem_tag)
+            self.states["FAULT"] = csc_states.FaultState(self.subsystem_tag)
             self.states["INITIAL"] = self.states["OFFLINE"]
             self.states["FINAL"] = self.states["OFFLINE"]
 
@@ -141,37 +141,65 @@ class Context:
 
     def execute_command(self, command):
         """This method delegates commands recieved by a DDSController to the
-        state. 
+        state.
 
         The model is passed so that the State object may call methods on
         it. Also the state is stored on the model only as a string
         representation. The actual state object is stored on this context
-        object as self.states. 
+        object as self.states.
 
         Attributes:
             command: A string representation of the command recieved by a
             DDSController object.
         """
 
-        current_state = self.states[self.model.state]
-
         if command == "ENTERCONTROL":
-            current_state.enter_control()
+
+            # Get the current state
+            current_state = self.states[self.model.state]
+            # Call exit methods, killing threads perhaps
+            current_state.exit(self.model)
+            # Call our "change state" method
+            current_state.enter_control(self.model)
+            # Since the state we changed to is implementer decided, we re-get it
+            current_state = self.states[self.model.state]
+            # Call the do methods on the state we just entered, starting threads perhaps
+            current_state.do(self.model)
 
         elif command == "START":
-            current_state.start()
+            current_state = self.states[self.model.state]
+            current_state.exit(self.model)
+            current_state.start(self.model)
+            current_state = self.states[self.model.state]
+            current_state.do(self.model)
 
         elif command == "ENABLE":
-            current_state.enable()
+            current_state = self.states[self.model.state]
+            current_state.exit(self.model)
+            current_state.enable(self.model)
+            current_state = self.states[self.model.state]
+            current_state.do(self.model)
 
         elif command == "DISABLE":
-            current_state.disable()
+            current_state = self.states[self.model.state]
+            current_state.exit(self.model)
+            current_state.disable(self.model)
+            current_state = self.states[self.model.state]
+            current_state.do(self.model)
 
         elif command == "STANDBY":
-            current_state.go_to_standby()
+            current_state = self.states[self.model.state]
+            current_state.exit(self.model)
+            current_state.standby(self.model)
+            current_state = self.states[self.model.state]
+            current_state.do(self.model)
 
         elif command == "EXITCONTROL":
-            current_state.exit()
+            current_state = self.states[self.model.state]
+            current_state.exit(self.model)
+            current_state.exit_control(self.model)
+            current_state = self.states[self.model.state]
+            current_state.do(self.model)
 
 class DDSController(threading.Thread):
     """Class to subscribe and react to Commands for a Context.
@@ -224,9 +252,6 @@ class DDSController(threading.Thread):
 
         # Create a logger
         self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
-
-        # Store to which state this command is going to move up, using the states.next_state dictionary
-        self.next_state = csc_states.next_state[self.COMMAND]
 
         # Subscribe
         self.subscribe()
@@ -283,7 +308,7 @@ class DDSController(threading.Thread):
 
         self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
         self.context.execute_command(self.COMMAND)
-          
+
 def validate_transition(current_state, new_state):
     """
     Stand-alone function to validate transition. It returns true/false
