@@ -510,7 +510,10 @@ class DDSSend:
         self.manager.salProcessor("{}_command_{}".format(self.Device, cmd))
 
         self.cmdId = self.issueCommand[cmd](self.myData[cmd])
-        self.retval = self.waitForCompletion[cmd](self.cmdId, self.timeout)
+        if wait_command:
+            self.retval = self.waitForCompletion[cmd](self.cmdId, self.timeout)
+        else:
+            self.retval = -1
 
         # self.cmdId_time = time.time()
         # if wait_command:
