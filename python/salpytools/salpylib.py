@@ -614,10 +614,12 @@ class DDSSubscriberContainer:
     object-oriented access to the underlying data.
     '''
 
-    def __init__(self, device, stype='Event', topic=None):
+    def __init__(self, device, stype='Event', topic=None, tsleep=0.1):
 
         self.device = device
         self.type = stype
+
+        self.tsleep = tsleep
 
         self.subscribers = {}
 
@@ -659,7 +661,8 @@ class DDSSubscriberContainer:
                         self.subscribers[name] = DDSSubscriber(Device=self.device,
                                                                topic=name,
                                                                Stype=self.type,
-                                                               threadID='{}_{}_{}'.format(self.device, self.type, name))
+                                                               threadID='{}_{}_{}'.format(self.device, self.type, name),
+                                                               tsleep=self.tsleep)
                         self.subscribers[name].start()
                     except AttributeError:
                         self.log.debug('Could not add {}... Skipping...'.format(name))
