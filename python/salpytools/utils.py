@@ -1,12 +1,13 @@
+from importlib import import_module
 import logging
 
 log = logging.getLogger(__name__)
 
-def create_logger(level=logging.NOTSET,name='default'):
+def create_logger(name='default'):
     ''' Simple Logger '''
-    logging.basicConfig(level=level,
-                        format='[%(asctime)s] [%(levelname)s] %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
+    # logging.basicConfig(level=level,
+    #                     format='[%(asctime)s] [%(levelname)s] %(message)s',
+    #                     datefmt='%Y-%m-%d %H:%M:%S')
     logger = logging.getLogger(name)
     return logger
 
@@ -16,7 +17,7 @@ def load_SALPYlib(Device):
 
     # Make sure is not already loaded i.e. visible in globals
     try:
-        SALPY_lib = globals()['SALPY_{}'.format(Device)]
+        SALPY_lib = import_module('SALPY_{}'.format(Device))
         log.info('SALPY_{} is already in globals'.format(Device))
         return SALPY_lib
     except:

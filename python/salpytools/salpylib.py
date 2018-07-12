@@ -73,7 +73,7 @@ class Context:
             self.states["FINAL"] = self.states["ENABLED"]
 
         # Useful debug logging
-        self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
+        self.log = create_logger(name=self.subsystem_tag)
         self.log.debug('{} Init beginning'.format(self.subsystem_tag))
         self.log.debug('Starting with default state: {}'.format(default_state))
 
@@ -223,7 +223,7 @@ class DDSController(threading.Thread):
         self.daemon = True
 
         # Create a logger
-        self.log = create_logger(level=logging.NOTSET, name=self.subsystem_tag)
+        self.log = create_logger(name=self.subsystem_tag)
 
         # Store to which state this command is going to move up, using the states.next_state dictionary
         self.next_state = csc_states.next_state[self.COMMAND]
@@ -308,7 +308,7 @@ class DDSSubscriber(threading.Thread):
         self.Device = Device
         self.topic  = topic
 
-        self.log = create_logger(level=logging.NOTSET, name=self.Device)
+        self.log = create_logger(name=self.Device)
 
         self.tsleep = tsleep
         self.Stype  = Stype
@@ -456,7 +456,7 @@ class DDSSend:
         self.timeout = timeout
         self.Device = Device
         self.cmd = ''
-        self.log = create_logger(level=logging.NOTSET, name=self.Device)
+        self.log = create_logger(name=self.Device)
         self.myData = {}
         self.issueCommand = {}
         self.waitForCompletion = {}
@@ -626,7 +626,7 @@ class DDSSubscriberContainer:
 
         self.subscribers = {}
 
-        self.log = create_logger(level=logging.NOTSET, name=self.device)
+        self.log = create_logger(name=self.device)
 
         self.log.debug("Loading Device: {}".format(self.device))
         # Load SALPY_lib into the class
