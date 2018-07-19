@@ -19,7 +19,7 @@ summary_state_enum = {'DISABLE':0,
 
 class DefaultState:
 
-    def __init__(self, name, subsystem_tag, events=('SummaryState',), tsleep=0.5):
+    def __init__(self, name, subsystem_tag, events=('summaryState',), tsleep=0.5):
         self.name = name
         self.subsystem_tag = subsystem_tag
         self.tsleep = tsleep
@@ -82,7 +82,7 @@ class DefaultState:
 
     def wake(self):
         self.log.debug('State waking')
-        self.send_logEvent('SummaryState')
+        self.send_logEvent('summaryState')
 
     #<----- Default State methods corresponding to UML design under here ------>
 
@@ -114,12 +114,12 @@ class DefaultState:
 
 class OfflineState(DefaultState):
 
-    def __init__(self, subsystem_tag, events=('SummaryState',), tsleep=0.5):
+    def __init__(self, subsystem_tag, events=('summaryState',), tsleep=0.5):
         super(OfflineState, self).__init__('OFFLINE', subsystem_tag, events, tsleep)
 
     def enter_control(self, model):
         model.change_state("STANDBY")
-        self.send_logEvent("SummaryState", SummaryStateValue=5)
+        self.send_logEvent("summaryState", summaryState=5)
 
     def exit(self, model):
         self.log.debug("Offline: exit() not implemented")
@@ -130,16 +130,16 @@ class OfflineState(DefaultState):
 
 class StandbyState(DefaultState):
 
-    def __init__(self, subsystem_tag, events=('SummaryState',), tsleep=0.5):
+    def __init__(self, subsystem_tag, events=('summaryState',), tsleep=0.5):
         super(StandbyState, self).__init__('STANDBY', subsystem_tag, events, tsleep)
 
     def exit_control(self, model):
         model.change_state("OFFLINE")
-        self.send_logEvent("SummaryState", SummaryStateValue=4)
+        self.send_logEvent("summaryState", summaryState=4)
 
     def start(self, model):
         model.change_state("DISABLED")
-        self.send_logEvent("SummaryState", SummaryStateValue=1)
+        self.send_logEvent("summaryState", summaryState=1)
 
     def exit(self, model):
         self.log.debug("Standby: exit() not implemented")
@@ -152,16 +152,16 @@ class StandbyState(DefaultState):
 
 class DisabledState(DefaultState):
 
-    def __init__(self, subsystem_tag, events=('SummaryState',), tsleep=0.5):
+    def __init__(self, subsystem_tag, events=('summaryState',), tsleep=0.5):
         super(DisabledState, self).__init__('DISABLED', subsystem_tag, events, tsleep)
 
     def enable(self, model):
         model.change_state("ENABLED")
-        self.send_logEvent("SummaryState", SummaryStateValue=2)
+        self.send_logEvent("summaryState", summaryState=2)
 
     def standby(self, model):
         model.change_state("STANDBY")
-        self.send_logEvent("SummaryState", SummaryStateValue=5)
+        self.send_logEvent("summaryState", summaryState=5)
 
     def exit(self, model):
         self.log.debug("Disabled: exit() not implemented")
@@ -183,12 +183,12 @@ class DisabledState(DefaultState):
 
 class EnabledState(DefaultState):
 
-    def __init__(self, subsystem_tag, events=('SummaryState',), tsleep=0.5):
+    def __init__(self, subsystem_tag, events=('summaryState',), tsleep=0.5):
         super(EnabledState, self).__init__('ENABLED', subsystem_tag, events, tsleep)
 
     def disable(self, model):
         model.change_state("DISABLED")
-        self.send_logEvent("SummaryState", SummaryStateValue=1)
+        self.send_logEvent("summaryState", summaryState=1)
 
     def exit(self, model):
         self.log.debug("Enabled: exit() not implemented")
@@ -210,12 +210,12 @@ class EnabledState(DefaultState):
 
 class FaultState(DefaultState):
 
-    def __init__(self, subsystem_tag, events=('SummaryState',), tsleep=0.5):
+    def __init__(self, subsystem_tag, events=('summaryState',), tsleep=0.5):
         super(FaultState, self).__init__('FAULT', subsystem_tag, events, tsleep)
 
     def go_to_standby(self, model):
         self.model.change_state("STANDBY")
-        self.send_logEvent("SummaryState", SummaryStateValue=4)
+        self.send_logEvent("summaryState", summaryState=4)
 
     def on_heartbeat(self, model):
         pass
