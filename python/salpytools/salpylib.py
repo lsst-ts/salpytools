@@ -28,6 +28,7 @@ The the Main classes in the module are:
 # NOTE: all import of SALPY_{moduleName} are done on the fly using the fuction load_SALPYlib()
 
 
+SAL__CMD_STARTED=301
 SAL__CMD_COMPLETE=303
 spinner = itertools.cycle(['-', '/', '|', '\\'])
 
@@ -306,8 +307,9 @@ class DDSController(threading.Thread):
             cmdid: ID handle of the command this DDSController is watching.
         """
 
-        self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK");
-        self.context.execute_command(self.COMMAND)
+        self.mgr_ackCommand(cmdid, SAL__CMD_STARTED, 0, "Starting: OK")
+        self.context.execute_command(self.COMMAND, self.myData)
+        self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK")
 
 def validate_transition(current_state, new_state):
     """
