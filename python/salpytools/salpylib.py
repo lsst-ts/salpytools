@@ -325,17 +325,27 @@ class DDSSend:
     For Events/Telemetry, the same object can be re-used for a given Device,
     '''
 
-    def __init__(self, Device, sleeptime=1, timeout=5):
+    def __init__(self, Device, device_id=None, sleeptime=1, timeout=5):
         self.sleeptime = sleeptime
         self.timeout = timeout
         self.Device = Device
+        self.device_id = device_id
         self.cmd = ''
         self.log = create_logger(name=self.Device)
         self.log.debug("Loading Device: {}".format(self.Device))
 
         # Load SALPY_lib into the class
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
-        self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
+        if device_id is None:
+            self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
+        else:
+            try:
+                self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))(device_id)
+            except TypeError:
+                self.log.error('Could not initialize component {} '
+                               'with device id {}. Trying with no id.'.format(self.Device, device_id))
+                self.device_id = None
+                self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
 
     def send_Command(self, cmd, **kwargs):
         """
