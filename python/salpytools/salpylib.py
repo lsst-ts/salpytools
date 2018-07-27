@@ -2,12 +2,10 @@
 import time
 import sys
 import threading
-import logging
 import salpytools.states as csc_states
 from salpytools.utils import create_logger, load_SALPYlib
 import inspect
 from importlib import import_module
-import copy
 import itertools
 
 """
@@ -28,8 +26,16 @@ The the Main classes in the module are:
 # NOTE: all import of SALPY_{moduleName} are done on the fly using the fuction load_SALPYlib()
 
 
-SAL__CMD_STARTED=301
-SAL__CMD_COMPLETE=303
+SAL__CMD_ABORTED = -303
+SAL__CMD_ACK = 300
+SAL__CMD_COMPLETE = 303
+SAL__CMD_FAILED = -302
+SAL__CMD_INPROGRESS = 301
+SAL__CMD_NOACK = -301
+SAL__CMD_NOPERM = -300
+SAL__CMD_STALLED = 302
+SAL__CMD_TIMEOUT = -304
+
 spinner = itertools.cycle(['-', '/', '|', '\\'])
 
 LOGGER = create_logger(name=__name__)
@@ -140,9 +146,16 @@ class DDSController(threading.Thread):
             cmdid: ID handle of the command this DDSController is watching.
         """
 
-        self.mgr_ackCommand(cmdid, SAL__CMD_STARTED, 0, "Starting: OK")
-        self.context.execute_command(self.COMMAND, self.myData)
-        self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, 0, "Done : OK")
+        self.mgr_ackCommand(cmdid, SAL__CMD_INPROGRESS, 0, "Starting: OK")
+        try:
+            err, message = self.context.execute_command(self.COMMAND, self.myData)
+        except Exception as exception:
+            self.mgr_ackCommand(cmdid, SAL__CMD_FAILED, 1,
+                                "An {} exception occurred when running {}.".format(exception.__class__.__name__,
+                                                                                   self.COMMAND))
+        else:
+            self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, err, message)
+
 
 def validate_transition(current_state, new_state):
     """
