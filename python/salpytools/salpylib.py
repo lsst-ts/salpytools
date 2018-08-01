@@ -8,8 +8,9 @@ import inspect
 from importlib import import_module
 import itertools
 
-from SALPY_scheduler import *
 import asyncio
+
+from SALPY_scheduler import *
 
 """
 A Set of Python classes and tools to subscribe to LSST/SAL DDS topics using the ts_sal generated libraries.
@@ -203,20 +204,26 @@ class subscriberThread(threading.Thread):
         while True:
             retval = self.mgr.getNextSample_bulkCloud(self.data)
             if retval == 0:
-                print("recieved new data")
+                print("recieved bulkCloud: {}".format(self.data.bulkCloud))
+                print("recieved timestamp: {}".format(self.data.timestamp))
                 self.handle.bulkCloud = self.data.bulkCloud
                 self.handle.timestamp = self.data.timestamp
 
             time.sleep(self.rate)
 
-class asyncioSubscriber():
+class subscriberAsyncio():
+    """ A DDS subscribes to Telemetry or Events and saves the recieved data to 
+    a handed object. In this implementation we use Asyncio to asynchonously
+    check between multiple topics to see if new data has arrived from SAL.
+    """
 
     def __init__(self):
 
         self.tasks = []
         self.mgr = SAL_scheduler()
-        print("Initializing")
+        self.log = create_logger("salpytools")
 
+        print("Initializing")
 
     async def subscriberA(self, refresh):  
         
@@ -227,11 +234,10 @@ class asyncioSubscriber():
             
             await asyncio.sleep(refresh)
             retval = self.mgr.getNextSample_bulkCloud(myData)
-            LOGGER.info("CheckingA")
 
             if retval==0:
-                LOGGER.info("bulkCloud = " + str(myData.bulkCloud))
-                LOGGER.info("timestamp = " + str(myData.timestamp))
+                print("bulkCloud = " + str(myData.bulkCloud))
+                print("timestamp = " + str(myData.timestamp))
 
     async def subscriberB(self, refresh):  
         
@@ -242,14 +248,10 @@ class asyncioSubscriber():
             
             await asyncio.sleep(refresh)
             retval = self.mgr.getNextSample_seeing(myData)
-            LOGGER.info("CheckingB")
 
             if retval == 0:
-                LOGGER.info("seeing = " + str(myData.seeing))
-                LOGGER.info("timestamp = " + str(myData.timestamp))
-
-
-
+                print("seeing = " + str(myData.seeing))
+                print("timestamp = " + str(myData.timestamp))
 
     def addSubscriber(self, refresh):
         self.tasks.append(asyncio.ensure_future(self.subscriberA(refresh)))
@@ -259,60 +261,6 @@ class asyncioSubscriber():
         loop = asyncio.get_event_loop()
         loop.run_until_complete(asyncio.wait(self.tasks))  
         loop.close()
-
-
-# class subscriberAsyncio():
-#     """ Another implementation of the subsciber using Asyncio. The idea here is 
-#     we create a list of coroutines, where each coroutine is watching a topic.
-#     Once that coroutine sees that new data is recieved it will update the handle
-#     that has been passed to it.
-#     """
-#     def __init__(self):
-
-#         self.tasks = []
-#         self.mgr = SAL_scheduler()
-#         print("Initializing")
-
-
-#     async def subscriberA(self, refresh):  
-        
-#         # self.mgr.salTelemetrySub("scheduler_bulkCloud")
-#         # myData = scheduler_bulkCloudC()
-
-#         while(True):
-            
-#             await asyncio.sleep(refresh)
-#             # retval = self.mgr.getNextSample_bulkCloud(myData)
-#             LOGGER.info("CheckingA")
-
-#             if retval==0:
-#                 LOGGER.info("bulkCloud = " + str(myData.bulkCloud))
-#                 LOGGER.info("timestamp = " + str(myData.timestamp))
-
-#     async def subscriberB(self, refresh):  
-        
-#         # self.mgr.salTelemetrySub("scheduler_seeing")
-#         # myData = scheduler_seeingC()
-
-#         while(True):
-            
-#             await asyncio.sleep(refresh)
-#             # retval = self.mgr.getNextSample_seeing(myData)
-#             LOGGER.info("CheckingB")
-
-#             if retval == 0:
-#                 LOGGER.info("seeing = " + str(myData.seeing))
-#                 LOGGER.info("timestamp = " + str(myData.timestamp))
-
-#     def addSubscriber(self, refresh):
-#         self.tasks.append(asyncio.ensure_future(self.subscriberA(refresh)))
-#         self.tasks.append(asyncio.ensure_future(self.subscriberB(refresh)))
-
-#     def do(self):
-#         loop = asyncio.get_event_loop()
-#         loop.run_until_complete(asyncio.wait(self.tasks))  
-#         loop.close()
-
 
 
 class DDSSubscriber(threading.Thread):
