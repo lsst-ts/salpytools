@@ -70,7 +70,7 @@ class DDSController(threading.Thread):
         topic: Name of the complete topic we wish to subscribe to. If left empty
         we use the command and subsytem_tag.
     """
-    def __init__(self, context, command=None, topic=None, threadID='1', tsleep=0.5):
+    def __init__(self, context, command=None, topic=None, device_id=None, threadID='1', tsleep=0.5):
 
         # Either a command or topic need to be defined to tell this
         # DDSController what topic to subscribe and react to.
@@ -79,6 +79,7 @@ class DDSController(threading.Thread):
 
         threading.Thread.__init__(self)
         self.subsystem_tag = context.subsystem_tag
+        self.device_id = device_id
         self.command = command
         self.COMMAND = self.command.upper()
         if not topic:
@@ -93,7 +94,14 @@ class DDSController(threading.Thread):
         # Create a logger
         self.log = create_logger(name=self.subsystem_tag)
 
+        self.newControl = False
+
         # Subscribe
+        self.mgr = None  # SAL Manager
+        self.myData = None  # SAL topic
+        self.mgr_acceptCommand = None  # Accept command
+        self.mgr_ackCommand = None  # Ack command
+
         self.subscribe()
 
     def subscribe(self):
@@ -106,21 +114,30 @@ class DDSController(threading.Thread):
         # - create a mananger
         # Here we do the equivalent of:
         # mgr.salProcessor("atHeaderService_command_EnterControl")
-
-        self.newControl = False
-
         # Get the mgr
-        SALPY_lib = import_module('SALPY_{}'.format(self.subsystem_tag)) #globals()['SALPY_{}'.format(self.subsystem_tag)]
-        self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
+        SALPY_lib = import_module('SALPY_{}'.format(self.subsystem_tag))
+
+        if self.device_id is None:
+            self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
+        else:
+            try:
+                self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))(self.device_id)
+            except TypeError:
+                self.log.error('Could not initialize component {} '
+                               'with device id {}. Trying with no id.'.format(self.subsystem_tag, self.device_id))
+                self.device_id = None
+                self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
+
+        # self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
         self.mgr.salProcessor(self.topic)
-        self.myData = getattr(SALPY_lib,self.topic+'C')()
+        self.myData = getattr(SALPY_lib, self.topic+'C')()
         self.log.info("{} controller ready for topic: {}".format(self.subsystem_tag,self.topic))
 
         # We use getattr to get the equivalent of for our accept and ack command
         # mgr.acceptCommand_EnterControl()
         # mgr.ackCommand_EnterControl
-        self.mgr_acceptCommand = getattr(self.mgr,'acceptCommand_{}'.format(self.command))
-        self.mgr_ackCommand = getattr(self.mgr,'ackCommand_{}'.format(self.command))
+        self.mgr_acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.command))
+        self.mgr_ackCommand = getattr(self.mgr, 'ackCommand_{}'.format(self.command))
 
     def run(self):
         self.run_command()
@@ -129,6 +146,7 @@ class DDSController(threading.Thread):
         while True:
             cmdId = self.mgr_acceptCommand(self.myData)
             if cmdId > 0:
+                self.mgr_ackCommand(cmdId, SAL__CMD_ACK, 0, "Command received : OK")
                 self.reply_to_transition(cmdId)
                 self.newControl = True
             time.sleep(self.tsleep)
@@ -175,11 +193,13 @@ class DDSSubscriber(threading.Thread):
 
     ''' Class to Subscribe to Telemetry, it could a Command (discouraged), Event or Telemetry'''
 
-    def __init__(self, Device, topic, threadID='1', Stype='Telemetry', tsleep=0.01, timeout=3600, nkeep=100):
+    def __init__(self, Device, topic, device_id=None, threadID='1', Stype='Telemetry',
+                 tsleep=0.01, timeout=3600, nkeep=100):
         threading.Thread.__init__(self)
         self.threadID = threadID
         self.Device = Device
         self.topic = topic
+        self.device_id = device_id
 
         self.log = create_logger(name=self.Device)
 
@@ -188,6 +208,18 @@ class DDSSubscriber(threading.Thread):
         self.timeout = timeout
         self.nkeep   = nkeep
         self.daemon = True
+
+        # Subscribe
+        self.newTelem = False
+        self.newEvent = False
+
+        self.getNextSample = None  # Method to get telemetry
+        self.getEvent = None  # Method to get Event
+        self.myData = None  # Method to get Commands
+        self.acceptCommand = None  # Method to accept command
+
+        self.mgr = None  # SAL Manager
+
         self.subscribe()
 
     def subscribe(self):
@@ -199,31 +231,39 @@ class DDSSubscriber(threading.Thread):
         # - find the library pointer using globals()
         # - create a mananger
 
-        self.newTelem = False
-        self.newEvent = False
+        SALPY_lib = import_module('SALPY_{}'.format(self.Device))
 
-        # Load (if not in globals already) SALPY_{deviceName} into class
-        self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
-        self.mgr = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
+        if self.device_id is None:
+            self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))()
+        else:
+            try:
+                self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))(self.device_id)
+            except TypeError:
+                self.log.error('Could not initialize component {} '
+                               'with device id {}. Trying with no id.'.format(self.Device, self.device_id))
+                self.device_id = None
+                self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))()
 
-        if self.Stype=='Telemetry':
-            self.myData = getattr(self.SALPY_lib,'{}_{}C'.format(self.Device,self.topic))()
-            self.mgr.salTelemetrySub("{}_{}".format(self.Device,self.topic))
+        if self.Stype == 'Telemetry':
+            self.myData = getattr(SALPY_lib, '{}_{}C'.format(self.Device, self.topic))()
+            self.mgr.salTelemetrySub("{}_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
-            self.getNextSample = getattr(self.mgr,"getNextSample_{}".format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
-        elif self.Stype=='Event':
-            self.myData = getattr(self.SALPY_lib,'{}_logevent_{}C'.format(self.Device,self.topic))()
-            self.mgr.salEvent("{}_logevent_{}".format(self.Device,self.topic))
+            self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+        elif self.Stype == 'Event':
+            self.myData = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))()
+            self.mgr.salEvent("{}_logevent_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
-            self.getEvent = getattr(self.mgr,'getEvent_{}'.format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
-        elif self.Stype=='Command':
-            self.myData = getattr(self.SALPY_lib,'{}_command_{}C'.format(self.Device,self.topic))()
-            self.mgr.salProcessor("{}_command_{}".format(self.Device,self.topic))
+            self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+        elif self.Stype == 'Command':
+            self.log.warning('This method is not intended to be used to listen to commands. Unless you know what you'
+                             'are doing, you are probably looking for DDSController instead.')
+            self.myData = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))()
+            self.mgr.salProcessor("{}_command_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
-            self.acceptCommand = getattr(self.mgr,'acceptCommand_{}'.format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,self.Device,self.topic))
+            self.acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
 
     def run(self):
         ''' The run method for the threading'''
