@@ -120,6 +120,7 @@ class OfflineState(DefaultState):
     def enter_control(self, model):
         model.change_state("STANDBY")
         self.send_logEvent("summaryState", summaryState=5)
+        return 0, 'DONE'
 
     def exit(self, model):
         self.log.debug("Offline: exit() not implemented")
@@ -136,10 +137,12 @@ class StandbyState(DefaultState):
     def exit_control(self, model):
         model.change_state("OFFLINE")
         self.send_logEvent("summaryState", summaryState=4)
+        return 0, 'DONE'
 
     def start(self, model):
         model.change_state("DISABLED")
         self.send_logEvent("summaryState", summaryState=1)
+        return 0, 'DONE'
 
     def exit(self, model):
         self.log.debug("Standby: exit() not implemented")
@@ -158,10 +161,12 @@ class DisabledState(DefaultState):
     def enable(self, model):
         model.change_state("ENABLED")
         self.send_logEvent("summaryState", summaryState=2)
+        return 0, 'DONE'
 
     def standby(self, model):
         model.change_state("STANDBY")
         self.send_logEvent("summaryState", summaryState=5)
+        return 0, 'DONE'
 
     def exit(self, model):
         self.log.debug("Disabled: exit() not implemented")
@@ -189,6 +194,7 @@ class EnabledState(DefaultState):
     def disable(self, model):
         model.change_state("DISABLED")
         self.send_logEvent("summaryState", summaryState=1)
+        return 0, 'DONE'
 
     def exit(self, model):
         self.log.debug("Enabled: exit() not implemented")
@@ -216,6 +222,7 @@ class FaultState(DefaultState):
     def go_to_standby(self, model):
         self.model.change_state("STANDBY")
         self.send_logEvent("summaryState", summaryState=4)
+        return 0, 'DONE'
 
     def on_heartbeat(self, model):
         pass

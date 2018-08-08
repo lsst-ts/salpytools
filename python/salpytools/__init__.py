@@ -5,3 +5,4 @@ version = __version__
 from .salpylib import DDSController
 from .salpylib import DDSSubscriber
 from .salpylib import DDSSend
+from .state_transition_exception import *
