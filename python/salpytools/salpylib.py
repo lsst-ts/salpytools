@@ -167,11 +167,16 @@ class DDSController(threading.Thread):
         self.mgr_ackCommand(cmdid, SAL__CMD_INPROGRESS, 0, "Starting: OK")
         try:
             err, message = self.context.execute_command(self.COMMAND, self.myData)
+            self.log.debug('Command execution complete...')
         except Exception as exception:
+            self.log.error('Exception while executing {}.'.format(self.COMMAND))
             self.mgr_ackCommand(cmdid, SAL__CMD_FAILED, 1,
                                 "An {} exception occurred when running {}.".format(exception.__class__.__name__,
                                                                                    self.COMMAND))
         else:
+            self.log.debug('Sending {} ack with {} {}'.format(SAL__CMD_COMPLETE,
+                                                              err,
+                                                              message))
             self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, err, message)
 
 
