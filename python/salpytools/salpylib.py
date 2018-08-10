@@ -7,6 +7,7 @@ from salpytools.utils import create_logger, load_SALPYlib
 import inspect
 from importlib import import_module
 import itertools
+import logging
 
 """
 A Set of Python classes and tools to subscribe to LSST/SAL DDS topics using the ts_sal generated libraries.
@@ -82,6 +83,13 @@ class DDSController(threading.Thread):
         self.device_id = device_id
         self.command = command
         self.COMMAND = self.command.upper()
+
+        # Create a logger
+        self.log = logging.getLogger(self.subsystem_tag)
+
+        self.log.debug('Starting DDSController for {}:{}'.format(self.subsystem_tag,
+                                                                 self.COMMAND))
+
         if not topic:
             self.topic = "{}_command_{}".format(self.subsystem_tag, self.command)
         else:
@@ -90,9 +98,6 @@ class DDSController(threading.Thread):
         self.tsleep = tsleep
         self.context = context
         self.daemon = True
-
-        # Create a logger
-        self.log = create_logger(name=self.subsystem_tag)
 
         self.newControl = False
 
@@ -140,6 +145,7 @@ class DDSController(threading.Thread):
         self.mgr_ackCommand = getattr(self.mgr, 'ackCommand_{}'.format(self.command))
 
     def run(self):
+        self.log.debug('Running...')
         self.run_command()
 
     def run_command(self):
