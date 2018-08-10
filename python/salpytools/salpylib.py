@@ -177,6 +177,7 @@ class DDSController(threading.Thread):
             self.log.debug('Command execution complete...')
         except Exception as exception:
             self.log.error('Exception while executing {}.'.format(self.COMMAND))
+            self.log.exception(exception)
             self.mgr_ackCommand(cmdid, SAL__CMD_FAILED, 1,
                                 "An {} exception occurred when running {}.".format(exception.__class__.__name__,
                                                                                    self.COMMAND))
