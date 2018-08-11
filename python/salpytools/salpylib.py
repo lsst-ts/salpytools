@@ -386,6 +386,7 @@ class DDSSend:
         self.cmd = ''
         self.log = create_logger(name=self.Device)
         self.log.debug("Loading Device: {}".format(self.Device))
+        self.subscribed = []
 
         # Load SALPY_lib into the class
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
@@ -422,7 +423,10 @@ class DDSSend:
         # 2) waitForCompletion -- this can be run separately
 
         self.log.debug("Issuing command: {}".format(cmd))
-        self.manager.salProcessor("{}_command_{}".format(self.Device, cmd))
+        cmd_name = "{}_command_{}".format(self.Device, cmd)
+        if cmd_name not in self.subscribed:
+            self.manager.salProcessor(cmd_name)
+            self.subscribed.append(cmd_name)
         cmdid = getattr(self.manager, 'issueCommand_{}'.format(cmd))(data)
 
         if wait_command:
@@ -476,7 +480,10 @@ class DDSSend:
 
         # Get the logEvent object to send myData
 
-        self.manager.salEvent("{}_logevent_{}".format(self.Device, event))
+        event_name = "{}_logevent_{}".format(self.Device, event)
+        if event_name not in self.subscribed:
+            self.manager.salEvent(event_name)
+            self.subscribed.append(event_name)
 
         self.log.debug("Sending Event: {}".format(event))
         getattr(self.manager, 'logEvent_{}'.format(event))(data, priority)
@@ -496,8 +503,12 @@ class DDSSend:
         data = self.get_telemetry_data(telemetry, **kwargs)
 
         # Make it visible outside
+        telemetry_name = "{}_{}".format(self.Device, telemetry)
 
-        self.manager.salTelemetryPub("{}_{}".format(self.Device, telemetry))
+        if telemetry_name not in self.subscribed:
+            self.manager.salTelemetryPub(telemetry_name)
+            self.subscribed.append(telemetry_name)
+            
         self.log.debug("Sending Telemetry: {}".format(telemetry))
         getattr(self.manager, 'putSample_{}'.format(telemetry))(data)
 
