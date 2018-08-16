@@ -542,9 +542,10 @@ class DDSSubscriberContainer:
     object-oriented access to the underlying data.
     '''
 
-    def __init__(self, device, stype='Event', topic=None, tsleep=0.1):
+    def __init__(self, device, stype='Event', topic=None, tsleep=0.1, device_id=None):
 
         self.device = device
+        self.device_id = device_id
         self.type = stype
 
         self.tsleep = tsleep
@@ -556,7 +557,16 @@ class DDSSubscriberContainer:
         self.log.debug("Loading Device: {}".format(self.device))
         # Load SALPY_lib into the class
         self.SALPY_lib = import_module('SALPY_{}'.format(self.device))
-        self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))()
+        if self.device_id is None:
+            self.mgr = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))()
+        else:
+            try:
+                self.mgr = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))(self.device_id)
+            except TypeError:
+                self.log.error('Could not initialize component {} '
+                               'with device id {}. Trying with no id.'.format(self.device, self.device_id))
+                self.device_id = None
+                self.mgr = getattr(self.SALPY_lib, 'SAL_{}'.format(self.device))()
 
         if topic is not None:
             self.log.debug("Loading topic: {}".format(topic))
@@ -590,7 +600,8 @@ class DDSSubscriberContainer:
                                                                topic=name,
                                                                Stype=self.type,
                                                                threadID='{}_{}_{}'.format(self.device, self.type, name),
-                                                               tsleep=self.tsleep)
+                                                               tsleep=self.tsleep,
+                                                               device_id=device_id)
                         self.subscribers[name].start()
                     except AttributeError:
                         self.log.debug('Could not add {}... Skipping...'.format(name))
