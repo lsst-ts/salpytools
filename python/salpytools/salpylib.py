@@ -4,10 +4,12 @@ import sys
 import threading
 import salpytools.states as csc_states
 from salpytools.utils import create_logger, load_SALPYlib
+from salpytools.state_transition_exception import StateTransitionException
 import inspect
 from importlib import import_module
 import itertools
 import logging
+import asyncio
 
 """
 A Set of Python classes and tools to subscribe to LSST/SAL DDS topics using the ts_sal generated libraries.
@@ -95,6 +97,10 @@ class DDSController(threading.Thread):
         else:
             self.topic  = topic
         self.threadID = threadID
+        self.reply_thread = None
+        self.shutdown_flag = threading.Event()
+        self.shutdown_flag.clear()
+
         self.tsleep = tsleep
         self.context = context
         self.daemon = True
@@ -149,13 +155,23 @@ class DDSController(threading.Thread):
         self.run_command()
 
     def run_command(self):
-        while True:
+        while not self.shutdown_flag.is_set():
             cmdId = self.mgr_acceptCommand(self.myData)
             if cmdId > 0:
                 self.mgr_ackCommand(cmdId, SAL__CMD_ACK, 0, "Command received : OK")
-                self.reply_to_transition(cmdId)
-                self.newControl = True
+                if self.reply_thread is not None and self.reply_thread.is_alive():
+                    self.log.warning('Still replying to a previous command!')
+                    self.mgr_ackCommand(cmdId, SAL__CMD_NOPERM, -1, "Still replying to a previous command!")
+                else:
+                    self.reply_thread = threading.Thread(target=self.reply_to_transition, args=(cmdId, ))
+                    self.reply_thread.start()
+                    # self.reply_to_transition(cmdId)
+                    self.newControl = True
             time.sleep(self.tsleep)
+        self.log.debug('Stopping...')
+
+    def stop(self):
+        self.shutdown_flag.set()
 
     def reply_to_transition(self, cmdid):
         """Delegate the command revcieved to the Context object.
@@ -175,12 +191,17 @@ class DDSController(threading.Thread):
             self.log.debug('Starting command execution ...')
             err, message = self.context.execute_command(self.COMMAND, self.myData)
             self.log.debug('Command execution complete...')
+        except StateTransitionException as exception:
+            self.log.error('Exception while executing {}.'.format(self.COMMAND))
+            self.log.exception(exception)
+            self.mgr_ackCommand(cmdid, SAL__CMD_NOPERM, 1,
+                                "State transition not allowed.")
         except Exception as exception:
             self.log.error('Exception while executing {}.'.format(self.COMMAND))
             self.log.exception(exception)
             self.mgr_ackCommand(cmdid, SAL__CMD_FAILED, 1,
-                                "An {} exception occurred when running {}.".format(exception.__class__.__name__,
-                                                                                   self.COMMAND))
+                                "{} exception occurred when running {}.".format(exception.__class__.__name__,
+                                                                                self.COMMAND))
         else:
             self.log.debug('Sending {} ack with {} {}'.format(SAL__CMD_COMPLETE,
                                                               err,
@@ -200,6 +221,94 @@ def validate_transition(current_state, new_state):
     else:
         LOGGER.info("Transition from {} --> {} is INVALID".format(current_state, new_state))
     return transition_is_valid
+
+
+class DDSSubscriberMain:
+    """Non Thread version of DDSSubscriber"""
+    def __init__(self, Device, topic, device_id=None, Stype='Telemetry',
+                 tsleep=0.01):
+
+        self.Device = Device
+        self.topic = topic
+        self.device_id = device_id
+
+        self.log = create_logger(name=self.Device)
+
+        self.tsleep = tsleep
+        self.Stype  = Stype
+
+        self.getNextSample = None  # Method to get telemetry
+        self.getEvent = None  # Method to get Event
+        self.myData = None  # Method to get Commands
+        self.acceptCommand = None  # Method to accept command
+
+        self.mgr = None  # SAL Manager
+
+        self.subscribe()
+
+    def subscribe(self):
+
+        # This section does the equivalent of:
+        # self.mgr = SALPY_tcs.SAL_tcs()
+        # The steps are:
+        # - 'figure out' the SALPY_xxxx Device name
+        # - find the library pointer using globals()
+        # - create a mananger
+
+        SALPY_lib = import_module('SALPY_{}'.format(self.Device))
+
+        if self.device_id is None:
+            self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))()
+        else:
+            try:
+                self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))(self.device_id)
+            except TypeError:
+                self.log.error('Could not initialize component {} '
+                               'with device id {}. Trying with no id.'.format(self.Device, self.device_id))
+                self.device_id = None
+                self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))()
+
+        if self.Stype == 'Telemetry':
+            self.myData = getattr(SALPY_lib, '{}_{}C'.format(self.Device, self.topic))()
+            self.mgr.salTelemetrySub("{}_{}".format(self.Device, self.topic))
+            # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
+            self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+        elif self.Stype == 'Event':
+            self.myData = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))()
+            self.mgr.salEvent("{}_logevent_{}".format(self.Device, self.topic))
+            # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
+            self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+        elif self.Stype == 'Command':
+            self.log.warning('This method is not intended to be used to listen to commands. Unless you know what you'
+                             'are doing, you are probably looking for DDSController instead.')
+            self.myData = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))()
+            self.mgr.salProcessor("{}_command_{}".format(self.Device, self.topic))
+            # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
+            self.acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+
+    async def run_Telem(self):
+        while True:
+            retval = self.getNextSample(self.myData)
+            if retval == 0:
+                break
+            await asyncio.sleep(self.tsleep)
+
+    async def run_Event(self):
+        while True:
+            retval = self.getEvent(self.myData)
+            if retval == 0:
+                break
+            await asyncio.sleep(self.tsleep)
+
+    async def run_Command(self):
+        while True:
+            self.cmdId = self.acceptCommand(self.myData)
+            if self.cmdId > 0:
+                break
+            await asyncio.sleep(self.tsleep)
 
 
 class DDSSubscriber(threading.Thread):
