@@ -64,9 +64,6 @@ class DDSController(threading.Thread):
     Attributes:
         command: String of the command for this DDSController to watch. Must
         match the exact name of the command defined within the EFDB Topic tag.
-        subsystem_tag: A string of the name of the CSC we want. Must exactly
-        match the Subsystem Tag defined in XML. Link to current Subsystem Tags
-        https://stash.lsstcorp.org/projects/TS/repos/ts_xml/browse/sal_interfaces
         topic: Name of the complete topic we wish to subscribe to. If left empty
         we use the command and subsytem_tag.
     """
@@ -156,20 +153,212 @@ class DDSController(threading.Thread):
         else:
             self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, err, message)
 
-
-def validate_transition(current_state, new_state):
+class DDSSubscriberThread(threading.Thread):
+    """Subscribes either to Telemetry or Events and saves the received data to
+    a handed dictionary. In this implementation a new thread is used for every
+    topic.
+    Attributes:
+        topic: A string of the name of the topic we are subscribing to.
+        handle: An dictionary to save the contents of the recieved data.
+        rate: Rate at which we attempt to obtain new data.
+        timeout: How long to wait for new data before timing out.
     """
-    Stand-alone function to validate transition. It returns true/false
-    """
-    current_index = csc_states.state_enumeration[current_state]
-    new_index = csc_states.state_enumeration[new_state]
-    transition_is_valid = csc_states.state_matrix[current_index][new_index]
-    if transition_is_valid:
-        LOGGER.info("Transition from {} --> {} is VALID".format(current_state, new_state))
-    else:
-        LOGGER.info("Transition from {} --> {} is INVALID".format(current_state, new_state))
-    return transition_is_valid
+    def __init__(self, topic=None, handle={}, rate=1, timeout=10):
+        threading.Thread.__init__(self)
 
+        self.topic = topic
+        if self.topic is None:
+            raise ValueError("A 'topic' argument must be passed")
+
+        self.handle = handle
+        if type(self.handle) is not dict:
+            raise ValueError("'handle' argument must be of type dictionary")
+
+        self.rate = rate
+        self.timeout = timeout
+
+        # Attributes we need to interact with SAL
+        self.subsystem_tag = self.parse_for_subsystem_tag(topic)
+        self.short_topic = self.parse_for_short_topic_name(topic)
+        self.salpy_lib = None
+        self.mgr = None
+        self.data = None
+
+        # We will turn only a single flag to true on mgr_subscibe_to_topic()
+        self.is_command = False
+        self.is_event = False
+        self.is_telemetry = False
+
+    def parse_for_subsystem_tag(self, topic):
+        """Here we parse our the subsytem tag from the topic. Must exactly
+        match the Subsystem Tag defined in XML. Link to current Subsystem Tags
+        https://stash.lsstcorp.org/projects/TS/repos/ts_xml/browse/sal_interfaces
+
+        There are a few rules that the topic must follow and will help with
+        raising accurate errors. If the topic is;
+
+        Telemetry: It will only have (1) underscore, after the subsytem tag.
+        Followed by any arbitrary set of chars for the name of the telemetry.
+
+                               [subsystem_tag]_[a-zA-Z]
+                                        ex;
+                                   scheduler_seeing
+
+        Event: It will have (2) underscores. One after the subsytem tag,
+        followed by "logevent", then the second underscore. Ending with an
+        arbitary set of chars for the name of the event.
+
+                         [subsystem_tag]_logevent_[a-zA-Z]
+                                        ex;
+                              scheduler_logevent_target
+
+        Command: Similiar to event, only difference being is that it will have
+        "command" rather than "logevent"
+
+                         [subsystem_tag]_command_[a-zA-Z]
+                                        ex;
+                              scheduler_command_target
+        """
+
+        parsed_topic = topic.split('_')
+
+        if len(parsed_topic[0]) == 0:     # Empty leading string
+            raise ValueError("Please check Topic format")
+
+        if len(parsed_topic[-1]) == 0:    # Empty ending string
+            raise ValueError("Please check Topic format")
+
+        if len(parsed_topic) < 1:         # No underscores in string
+            raise ValueError("Please check Topic format")
+
+        if len(parsed_topic) > 3:         # Too many underscores in string
+            raise ValueError("Please check Topic format")
+
+        if len(parsed_topic) == 3:        # Middle word not logevent or command
+
+            if parsed_topic[1] == "command" or parsed_topic[1] == "logevent":
+                return parsed_topic[0]
+            else:
+                raise ValueError("Please check Topic format")
+
+        if len(parsed_topic) == 2:
+            return parsed_topic[0]
+
+        raise ValueError("Please check topic format")
+
+    def parse_for_short_topic_name(self, topic):
+
+        parsed_topic = topic.split("_")
+
+        return parsed_topic[-1]
+
+    def configure(self):               # Example Equivilent of...
+        self.set_salpy_lib()           # import SALPY_scheduler
+        self.set_mgr()                 # self.mgr = SAL_scheduler()
+        self.mgr_subscribe_to_topic()  # self.mgr.salEvent("scheduler_[topic]")
+        self.set_data()                # self.data = scheduler_logevent_[topic]C
+
+    def set_salpy_lib(self):
+        self.salpy_lib = import_module('SALPY_{}'.format(self.subsystem_tag))
+
+    def set_mgr(self):
+        self.mgr = getattr(self.salpy_lib, 'SAL_{}'.format(self.subsystem_tag))()
+
+    def mgr_subscribe_to_topic(self):
+        """The topic can be Telemetry, a Command, or an Event. We know which it
+        is because the topic will have the following formats.
+
+        Command   = [subsystem tag]_command_[*[a-z][A-Z]]
+        Event     = [subsystem tag]_logevent_[*[a-z][A-Z]]
+        Telemetry = [subsystem tag]_[*[a-z][A-Z]]
+        """
+
+        if "command" in self.topic:
+            self.is_command = True
+
+        elif "logevent" in self.topic:
+            self.is_event = True
+
+        else:
+            self.is_telemetry = True
+
+        # 3) Tell the SAL manager to subscribe to the topic.
+        # We currently are not considering Commands in this class.
+        if self.is_command:
+            raise ValueError("DDSSubsciber only considers Telemetry, or Event "
+                             "topics. The given topic " + str(self.topic) +
+                             "is a command")
+        if self.is_event:
+            self.mgr.salEvent(self.topic)
+
+        if self.is_telemetry:
+            self.mgr.salTelemetrySub(self.topic)
+
+    def set_data(self):
+
+        # Either is_event or is_telemetry must be True for this method to work.
+        if self.is_event and self.is_telemetry and False:
+            raise ValueError("There are improperly configured attributes, call "
+                             "configure(). If this does not resolve the problem "
+                             "file a bug report.")
+
+        elif self.is_event:
+            self.data = getattr(self.salpy_lib, "{}C".format(self.topic))()
+        elif self.is_telemetry:
+            self.data = getattr(self.salpy_lib, "{}C".format(self.topic))()
+
+        else:
+            raise ValueError("There are improperly configured attributes, call "
+                             "configure(). If this does not resolve the problem "
+                             "file a bug report.")
+
+    def run(self):
+
+        if self.is_event:
+            self.run_event()
+
+        if self.is_telemetry:
+            self.run_telemetry()
+
+    def run_event(self):
+
+        self.getEvent = getattr(self.mgr,'getEvent_{}'.format(self.short_topic))
+
+        while True:
+            retval = self.getEvent(self.data)
+
+            if retval == 0:
+
+                # Get all the attributes of the self.data object
+                # https://stackoverflow.com/questions/5969806/print-all-properties-of-a-python-class
+                attributes = [attr for attr in dir(self.data) if not attr.startswith('__')]
+
+                for attribute in attributes:
+                    value = getattr(self.data, attribute)
+
+                    self.handle[attribute] = value
+
+            time.sleep(self.rate)
+
+    def run_telemetry(self):
+
+        self.getNextSample = getattr(self.mgr,"getNextSample_{}".format(self.short_topic))
+
+        while True:
+            retval = self.getNextSample(self.data)
+
+            if retval ==0:
+
+                # Get all the attributes of the self.data object
+                # https://stackoverflow.com/questions/5969806/print-all-properties-of-a-python-class
+                attributes = [attr for attr in dir(self.data) if not attr.startswith('__')]
+
+                for attribute in attributes:
+                    value = getattr(self.data, attribute)
+
+                    self.handle[attribute] = value
+
+            time.sleep(self.rate)
 
 class DDSSubscriber(threading.Thread):
 
@@ -314,7 +503,6 @@ class DDSSubscriber(threading.Thread):
     def resetEvent(self):
         ''' Simple function to set it back'''
         self.newEvent=False
-
 
 class DDSSend:
 
@@ -470,7 +658,6 @@ class DDSSend:
                 self.log.debug('{} = {}'.format(key, kwargs.get(key)))
 
         return data
-
 
 class DDSSubscriberContainer:
     '''
