@@ -666,7 +666,8 @@ class DDSSubscriber(threading.Thread):
         ''' Simple function to set it back'''
         self.newEvent=False
 
-class DDSSend:
+
+class DDSSend(threading.Thread):
 
     '''
     Class to generate/send Telemetry, Events or Commands.
@@ -675,7 +676,8 @@ class DDSSend:
     For Events/Telemetry, the same object can be re-used for a given Device,
     '''
 
-    def __init__(self, Device, device_id=None, sleeptime=1, timeout=5):
+    def __init__(self, Device, device_id=None, sleeptime=0.1, timeout=30):
+        threading.Thread.__init__(self)
         self.sleeptime = sleeptime
         self.timeout = timeout
         self.Device = Device
@@ -684,6 +686,7 @@ class DDSSend:
         self.log = create_logger(name=self.Device)
         self.log.debug("Loading Device: {}".format(self.Device))
         self.subscribed = []
+        self.cmd_responses = {}
 
         # Load SALPY_lib into the class
         self.SALPY_lib = import_module('SALPY_{}'.format(self.Device))
@@ -697,6 +700,33 @@ class DDSSend:
                                'with device id {}. Trying with no id.'.format(self.Device, device_id))
                 self.device_id = None
                 self.manager = getattr(self.SALPY_lib, 'SAL_{}'.format(self.Device))()
+
+        cmd_name = "{}_command_{}".format(self.Device, 'enable')
+        self.manager.salProcessor(cmd_name)
+        self.subscribed.append(cmd_name)
+        self.ack = getattr(self.SALPY_lib, '{}_ackcmdC'.format(self.Device))()
+
+    def run(self):
+        """
+        Listen for incoming acks and fill out cmd_responses.
+
+        Returns
+        -------
+        None
+        """
+
+        while True:
+            if len(self.cmd_responses) > 0:
+                response = self.manager.getResponse_enable(self.ack)
+                # Only store listed commands.
+                if response in self.cmd_responses:
+                    self.cmd_responses[response]['ack'].append((self.ack.ack, self.ack.error, self.ack.result))
+                    self.cmd_responses[response]['event'].set()
+
+            time.sleep(self.sleeptime)
+            # Clear all events in cmd_responses
+            for cmd_id in self.cmd_responses:
+                self.cmd_responses[cmd_id]['event'].clear()
 
     def send_Command(self, cmd, **kwargs):
         """
@@ -726,6 +756,13 @@ class DDSSend:
             self.subscribed.append(cmd_name)
         cmdid = getattr(self.manager, 'issueCommand_{}'.format(cmd))(data)
 
+        # Note that if SAL reuses a cmdid, it will be overwritten here.
+        # Todo: keep track of size of cmd_responses and delete older entries...
+        self.cmd_responses[cmdid] = {'cmd': cmd,
+                                     'ack': [],
+                                     'event': threading.Event()}
+        self.cmd_responses[cmdid]['event'].clear()
+
         if wait_command:
             retval = self.waitForCompletion(cmd, cmdid, timeout)
         else:
@@ -733,13 +770,94 @@ class DDSSend:
 
         return cmdid, retval
 
-    def waitForCompletion(self, cmd, cmdid, timeout=None):
+    def waitForCompletion(self, cmdid, timeout=None):
+        """
+        This method waits for an event from the specified command id and blocks until it receives an ack
+        that the command is complete. Basically any ack that is not SAL__CMD_ACK or SAL__CMD_INPROGRESS is
+        considered complete. Also, note that SAL__CMD_NOACK is ignored at a higher level.
+
+        Parameters
+        ----------
+        cmdid: The command id.
+        timeout: An optional timeout in seconds.
+
+        Returns
+        -------
+        cmdid: int: The id of the command if command is complete. The negative id of the command if command is not
+                    complete but received ack. -1 if times out.
+        ack: tuple(int, int, int) : The ack result or empty if it times out.
+        """
+        # Do some basic sanity check
+        if cmdid not in self.cmd_responses: # make sure we known this command
+            IOError('Unknown command {}'.format(cmdid))
+        elif len(self.cmd_responses[cmdid]['ack']) > 0 and (
+                self.cmd_responses[cmdid]['ack'][-1][0] != SAL__CMD_ACK and
+                self.cmd_responses[cmdid]['ack'][-1][0] != SAL__CMD_INPROGRESS):
+            ack = self.cmd_responses[cmdid]['ack'][-1]
+            self.log.debug('Command already completed with ack %i:%i:%s', ack[0], ack[1], ack[2])
+            return cmdid, ack
 
         tout = timeout if timeout is not None else self.timeout
-        self.log.debug("Wait {} sec for Completion: {}[{}]".format(tout, cmd, cmdid))
-        retval = getattr(self.manager, 'waitForCompletion_{}'.format(cmd))(cmdid, tout)
-        self.log.debug("Done: {}".format(cmd))
-        return retval
+        self.log.debug("Wait %f sec for completion of cmd: %s:[%s]", tout, self.cmd_responses[cmdid]['cmd'], cmdid)
+        # retval = getattr(self.manager, 'waitForCompletion_{}'.format(cmd))(cmdid, tout)
+        start_time = time.time()
+        while time.time()-start_time < tout:
+            got_response = self.cmd_responses[cmdid]['event'].wait(tout)
+            self.cmd_responses[cmdid]['event'].clear()
+            if got_response:
+                ack = self.cmd_responses[cmdid]['ack'][-1]
+                if ack[0] != SAL__CMD_ACK and ack[0] != SAL__CMD_INPROGRESS:
+                    self.log.debug('Command completed with ack %i:%i:%s', ack[0], ack[1], ack[2])
+                    return cmdid, ack
+                else:
+                    self.log.debug('Command not complete. Received ack %i:%i:%s', ack[0], ack[1], ack[2])
+                    # return -cmdid, ack
+        self.log.debug('%i:[%i]: Timed out', self.cmd_responses[cmdid], cmdid)
+        return -1, ()
+
+    def waitForInProgress(self, cmdid, timeout=None):
+        """
+        This method waits for an event from the specified command id and blocks until it receives an indication
+        of command in Progress. Basically any ack that is not SAL__CMD_ACK is
+        considered in progress. Also, note that SAL__CMD_NOACK is ignored at a higher level.
+
+        Parameters
+        ----------
+        cmdid: The command id.
+        timeout: An optional timeout in seconds.
+
+        Returns
+        -------
+        cmdid: int: The id of the command if command is in progress. The negative id of the command if command is not
+                    complete but received ack. -1 if times out.
+        ack: tuple(int, int, int) : The ack result or empty if it times out.
+        """
+        # Do some basic sanity check
+        if cmdid not in self.cmd_responses: # make sure we known this command
+            IOError('Unknown command {}'.format(cmdid))
+        elif len(self.cmd_responses[cmdid]['ack']) > 0 and (
+                self.cmd_responses[cmdid]['ack'][-1][0] != SAL__CMD_ACK):
+            ack = self.cmd_responses[cmdid]['ack'][-1]
+            self.log.debug('Command already in progress with ack %i:%i:%s', ack[0], ack[1], ack[2])
+            return cmdid, ack
+
+        tout = timeout if timeout is not None else self.timeout
+        self.log.debug("Wait %f sec for in progress of cmd: %s:[%s]", tout, self.cmd_responses[cmdid]['cmd'], cmdid)
+        # retval = getattr(self.manager, 'waitForCompletion_{}'.format(cmd))(cmdid, tout)
+        start_time = time.time()
+        while time.time()-start_time < tout:
+            got_response = self.cmd_responses[cmdid]['event'].wait(tout)
+            self.cmd_responses[cmdid]['event'].clear()
+            if got_response:
+                ack = self.cmd_responses[cmdid]['ack'][-1]
+                if ack[0] != SAL__CMD_ACK:
+                    self.log.debug('Command in progress with ack %i:%i:%s', ack[0], ack[1], ack[2])
+                    return cmdid, ack
+                else:
+                    self.log.debug('Waiting for command to start. Received ack %i:%i:%s', ack[0], ack[1], ack[2])
+                    # return -cmdid, ack
+        self.log.debug('%i:[%i]: Timed out', self.cmd_responses[cmdid], cmdid)
+        return -1, ()
 
     def ackCommand(self, cmd, cmdId):
         """ Just send the ACK for a command, it need the cmdId as input"""
