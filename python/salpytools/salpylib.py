@@ -812,7 +812,7 @@ class DDSSend(threading.Thread):
                 else:
                     self.log.debug('Command not complete. Received ack %i:%i:%s', ack[0], ack[1], ack[2])
                     # return -cmdid, ack
-        self.log.debug('%i:[%i]: Timed out', self.cmd_responses[cmdid], cmdid)
+        self.log.debug('%s:[%i]: Timed out', self.cmd_responses[cmdid]['cmd'], cmdid)
         return -1, ()
 
     def waitForInProgress(self, cmdid, timeout=None):
@@ -856,7 +856,7 @@ class DDSSend(threading.Thread):
                 else:
                     self.log.debug('Waiting for command to start. Received ack %i:%i:%s', ack[0], ack[1], ack[2])
                     # return -cmdid, ack
-        self.log.debug('%i:[%i]: Timed out', self.cmd_responses[cmdid], cmdid)
+        self.log.debug('%s:[%i]: Timed out', self.cmd_responses[cmdid]['cmd'], cmdid)
         return -1, ()
 
     def ackCommand(self, cmd, cmdId):
