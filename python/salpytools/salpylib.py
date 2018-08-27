@@ -678,6 +678,7 @@ class DDSSend(threading.Thread):
 
     def __init__(self, Device, device_id=None, sleeptime=0.1, timeout=30):
         threading.Thread.__init__(self)
+        self.daemon = True
         self.sleeptime = sleeptime
         self.timeout = timeout
         self.Device = Device
