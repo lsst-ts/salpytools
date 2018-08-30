@@ -765,7 +765,7 @@ class DDSSend(threading.Thread):
         self.cmd_responses[cmdid]['event'].clear()
 
         if wait_command:
-            retval = self.waitForCompletion(cmd, cmdid, timeout)
+            retval = self.waitForCompletion(cmdid, timeout)
         else:
             retval = None
 
