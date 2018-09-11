@@ -126,10 +126,9 @@ class TestDDSSubscriberThread(unittest.TestCase):
         subscriber.set_mgr()
         subscriber.mgr_subscribe_to_topic()
 
-"""
 class TestMemory(lsst.utils.tests.MemoryTestCase):
     pass
-"""
+
 
 def setup_module(module):
     lsst.utils.tests.init()
