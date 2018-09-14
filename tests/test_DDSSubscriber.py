@@ -1,6 +1,7 @@
 import unittest
 import lsst.utils.tests
-from lsst.salpytools import salpylib
+from lsst.ts.salpytools import salpylib
+
 
 class TestDDSSubscriberThread(unittest.TestCase):
 
