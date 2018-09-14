@@ -1,6 +1,6 @@
 *.pyc
 *~
-ospl-info.*
+ospl-*
 version.py
 __pycache__
 .ipynb_checkpoints

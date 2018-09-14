@@ -94,7 +94,7 @@ class TestDDSSubscriberThread(unittest.TestCase):
         self.assertFalse(subscriber.is_command)
         self.assertFalse(subscriber.is_telemetry)
 
-    def test_telemtry_topic(self):
+    def test_telemetry_topic(self):
         # Only the flag for the telemetry should be true, the others should be false.
         topic = "scheduler_bulkCloud"
         handle = {}
@@ -126,6 +126,7 @@ class TestDDSSubscriberThread(unittest.TestCase):
         subscriber.set_salpy_lib()
         subscriber.set_mgr()
         subscriber.mgr_subscribe_to_topic()
+
 
 class TestMemory(lsst.utils.tests.MemoryTestCase):
     pass
