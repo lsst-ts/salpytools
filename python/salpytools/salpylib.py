@@ -10,6 +10,7 @@ from importlib import import_module
 import itertools
 import logging
 import asyncio
+from collections import namedtuple
 
 """
 A Set of Python classes and tools to subscribe to LSST/SAL DDS topics using the ts_sal generated libraries.
@@ -527,6 +528,9 @@ class DDSSubscriber(threading.Thread):
         self.getNextSample = None  # Method to get telemetry
         self.getEvent = None  # Method to get Event
         self.myData = None  # Method to get Commands
+        self.my_data_type = None
+        self.my_data_namedtuple = None
+        self.topic_properties = None
         self.acceptCommand = None  # Method to accept command
 
         self.mgr = None  # SAL Manager
@@ -556,13 +560,15 @@ class DDSSubscriber(threading.Thread):
                 self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))()
 
         if self.Stype == 'Telemetry':
-            self.myData = getattr(SALPY_lib, '{}_{}C'.format(self.Device, self.topic))()
+            self.my_data_type = getattr(SALPY_lib, '{}_{}C'.format(self.Device, self.topic))
+            self.myData = self.my_data_type()
             self.mgr.salTelemetrySub("{}_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
             self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.topic))
             self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
         elif self.Stype == 'Event':
-            self.myData = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))()
+            self.my_data_type = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))
+            self.myData = self.my_data_type()
             self.mgr.salEvent("{}_logevent_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
             self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.topic))
@@ -570,11 +576,20 @@ class DDSSubscriber(threading.Thread):
         elif self.Stype == 'Command':
             self.log.warning('This method is not intended to be used to listen to commands. Unless you know what you'
                              'are doing, you are probably looking for DDSController instead.')
-            self.myData = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))()
+            self.my_data_type = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))
+            self.myData = self.my_data_type()
             self.mgr.salProcessor("{}_command_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.topic))
             self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+
+        self.topic_properties = []
+        for prop in vars(self.my_data_type):
+            if not prop.startswith('__'):
+                self.topic_properties.append(prop)
+
+        self.my_data_namedtuple = namedtuple(self.topic, self.topic_properties)
+
 
     def run(self):
         ''' The run method for the threading'''
@@ -595,7 +610,12 @@ class DDSSubscriber(threading.Thread):
         while True:
             retval = self.getNextSample(self.myData)
             if retval == 0:
-                self.myDatalist.append(self.myData)
+                my_data = {}
+                for prop in self.topic_properties:
+                    if not prop.startswith('__'):
+                        my_data[prop] = getattr(self.myData, prop)
+                my_topic = self.my_data_namedtuple(**my_data)
+                self.myDatalist.append(my_topic)
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newTelem = True
             time.sleep(self.tsleep)
@@ -605,7 +625,12 @@ class DDSSubscriber(threading.Thread):
         while True:
             retval = self.getEvent(self.myData)
             if retval == 0:
-                self.myDatalist.append(self.myData)
+                my_data = {}
+                for prop in self.topic_properties:
+                    if not prop.startswith('__'):
+                        my_data[prop] = getattr(self.myData, prop)
+                my_topic = self.my_data_namedtuple(**my_data)
+                self.myDatalist.append(my_topic)
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newEvent = True
             time.sleep(self.tsleep)
@@ -615,7 +640,12 @@ class DDSSubscriber(threading.Thread):
         while True:
             self.cmdId = self.acceptCommand(self.myData)
             if self.cmdId > 0:
-                self.myDatalist.append(self.myData)
+                my_data = {}
+                for prop in self.topic_properties:
+                    if not prop.startswith('__'):
+                        my_data[prop] = getattr(self.myData, prop)
+                my_topic = self.my_data_namedtuple(**my_data)
+                self.myDatalist.append(my_topic)
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newCommand = True
             time.sleep(self.tsleep)
