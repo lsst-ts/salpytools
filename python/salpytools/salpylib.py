@@ -527,6 +527,7 @@ class DDSSubscriber(threading.Thread):
         self.getNextSample = None  # Method to get telemetry
         self.getEvent = None  # Method to get Event
         self.myData = None  # Method to get Commands
+        self.my_data_type = None
         self.acceptCommand = None  # Method to accept command
 
         self.mgr = None  # SAL Manager
@@ -556,13 +557,15 @@ class DDSSubscriber(threading.Thread):
                 self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.Device))()
 
         if self.Stype == 'Telemetry':
-            self.myData = getattr(SALPY_lib, '{}_{}C'.format(self.Device, self.topic))()
+            self.my_data_type = getattr(SALPY_lib, '{}_{}C'.format(self.Device, self.topic))
+            self.myData = self.my_data_type()
             self.mgr.salTelemetrySub("{}_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
             self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.topic))
             self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
         elif self.Stype == 'Event':
-            self.myData = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))()
+            self.my_data_type = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))
+            self.myData = self.my_data_type()
             self.mgr.salEvent("{}_logevent_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
             self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.topic))
@@ -570,7 +573,8 @@ class DDSSubscriber(threading.Thread):
         elif self.Stype == 'Command':
             self.log.warning('This method is not intended to be used to listen to commands. Unless you know what you'
                              'are doing, you are probably looking for DDSController instead.')
-            self.myData = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))()
+            self.my_data_type = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))
+            self.myData = self.my_data_type()
             self.mgr.salProcessor("{}_command_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.topic))
@@ -593,19 +597,23 @@ class DDSSubscriber(threading.Thread):
 
     def run_Telem(self):
         while True:
-            retval = self.getNextSample(self.myData)
+            new_telemetry = self.my_data_type()
+            retval = self.getNextSample(new_telemetry)
             if retval == 0:
-                self.myDatalist.append(self.myData)
-                self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
+                self.myDatalist.append(new_telemetry)
+                self.myData = new_telemetry
+                self.myDatalist = self.myDatalist[-self.nkeep:]  # Keep only nkeep entries
                 self.newTelem = True
             time.sleep(self.tsleep)
         return
 
     def run_Event(self):
         while True:
-            retval = self.getEvent(self.myData)
+            new_event = self.my_data_type()
+            retval = self.getEvent(new_event)
             if retval == 0:
-                self.myDatalist.append(self.myData)
+                self.myDatalist.append(new_event)
+                self.myData = new_event
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newEvent = True
             time.sleep(self.tsleep)
@@ -613,9 +621,11 @@ class DDSSubscriber(threading.Thread):
 
     def run_Command(self):
         while True:
-            self.cmdId = self.acceptCommand(self.myData)
+            new_command = self.my_data_type()
+            self.cmdId = self.acceptCommand(new_command)
             if self.cmdId > 0:
-                self.myDatalist.append(self.myData)
+                self.myDatalist.append(new_command)
+                self.myData = new_command
                 self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
                 self.newCommand = True
             time.sleep(self.tsleep)
