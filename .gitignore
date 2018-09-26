@@ -1,3 +1,11 @@
 *.pyc
 *~
-ospl-info.log
+ospl-*
+version.py
+__pycache__
+.ipynb_checkpoints
+.cache/
+.sconf_temp/
+.sconsign.dblite
+config.log
+pytest_session.txt

@@ -1,15 +1,14 @@
-
 import time
 import sys
 import threading
-import salpytools.states as csc_states
-from salpytools.utils import create_logger, load_SALPYlib
-from salpytools.state_transition_exception import StateTransitionException
 import inspect
 from importlib import import_module
 import itertools
 import logging
 import asyncio
+from .utils import create_logger, load_SALPYlib
+from .state_transition_exception import StateTransitionException
+
 
 """
 A Set of Python classes and tools to subscribe to LSST/SAL DDS topics using the ts_sal generated libraries.
@@ -27,6 +26,8 @@ The the Main classes in the module are:
 # - Gather telemetry/events
 # - Send Control commands (to sim OCS)
 # NOTE: all import of SALPY_{moduleName} are done on the fly using the fuction load_SALPYlib()
+
+__all__ = ['DDSController', 'DDSSubscriber', 'DDSSend']
 
 
 SAL__CMD_ABORTED = -303
@@ -92,7 +93,7 @@ class DDSController(threading.Thread):
         if not topic:
             self.topic = "{}_command_{}".format(self.subsystem_tag, self.command)
         else:
-            self.topic  = topic
+            self.topic = topic
         self.threadID = threadID
         self.reply_thread = None
         self.shutdown_flag = threading.Event()
@@ -113,7 +114,6 @@ class DDSController(threading.Thread):
         self.subscribe()
 
     def subscribe(self):
-
         # This section does the equivalent of:
         # self.mgr = SALPY_tcs.SAL_tcs()
         # The steps are:
@@ -132,14 +132,15 @@ class DDSController(threading.Thread):
                 self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))(self.device_id)
             except TypeError:
                 self.log.error('Could not initialize component {} '
-                               'with device id {}. Trying with no id.'.format(self.subsystem_tag, self.device_id))
+                               'with device id {}. Trying with no id.'.format(self.subsystem_tag,
+                                                                              self.device_id))
                 self.device_id = None
                 self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
 
         # self.mgr = getattr(SALPY_lib, 'SAL_{}'.format(self.subsystem_tag))()
         self.mgr.salProcessor(self.topic)
         self.myData = getattr(SALPY_lib, self.topic+'C')()
-        self.log.info("{} controller ready for topic: {}".format(self.subsystem_tag,self.topic))
+        self.log.info("{} controller ready for topic: {}".format(self.subsystem_tag, self.topic))
 
         # We use getattr to get the equivalent of for our accept and ack command
         # mgr.acceptCommand_EnterControl()
@@ -204,6 +205,7 @@ class DDSController(threading.Thread):
                                                               err,
                                                               message))
             self.mgr_ackCommand(cmdid, SAL__CMD_COMPLETE, err, message)
+
 
 class DDSSubscriberThread(threading.Thread):
     """Subscribes either to Telemetry or Events and saves the received data to
@@ -374,7 +376,7 @@ class DDSSubscriberThread(threading.Thread):
 
     def run_event(self):
 
-        self.getEvent = getattr(self.mgr,'getEvent_{}'.format(self.short_topic))
+        self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.short_topic))
 
         while True:
             retval = self.getEvent(self.data)
@@ -394,12 +396,12 @@ class DDSSubscriberThread(threading.Thread):
 
     def run_telemetry(self):
 
-        self.getNextSample = getattr(self.mgr,"getNextSample_{}".format(self.short_topic))
+        self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.short_topic))
 
         while True:
             retval = self.getNextSample(self.data)
 
-            if retval ==0:
+            if retval == 0:
 
                 # Get all the attributes of the self.data object
                 # https://stackoverflow.com/questions/5969806/print-all-properties-of-a-python-class
@@ -411,6 +413,7 @@ class DDSSubscriberThread(threading.Thread):
                     self.handle[attribute] = value
 
             time.sleep(self.rate)
+
 
 class DDSSubscriberMain:
     """Non Thread version of DDSSubscriber"""
@@ -424,7 +427,7 @@ class DDSSubscriberMain:
         self.log = create_logger(name=self.Device)
 
         self.tsleep = tsleep
-        self.Stype  = Stype
+        self.Stype = Stype
 
         self.getNextSample = None  # Method to get telemetry
         self.getEvent = None  # Method to get Event
@@ -462,21 +465,25 @@ class DDSSubscriberMain:
             self.mgr.salTelemetrySub("{}_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
             self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,
+                                                                               self.Device, self.topic))
         elif self.Stype == 'Event':
             self.myData = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))()
             self.mgr.salEvent("{}_logevent_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
             self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,
+                                                                               self.Device, self.topic))
         elif self.Stype == 'Command':
-            self.log.warning('This method is not intended to be used to listen to commands. Unless you know what you'
-                             'are doing, you are probably looking for DDSController instead.')
+            self.log.warning('This method is not intended to be used to listen to commands. '
+                             'Unless you know what you are doing, you are probably looking for '
+                             'DDSController instead.')
             self.myData = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))()
             self.mgr.salProcessor("{}_command_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,
+                                                                               self.Device, self.topic))
 
     async def run_Telem(self):
         while True:
@@ -515,9 +522,9 @@ class DDSSubscriber(threading.Thread):
         self.log = create_logger(name=self.Device)
 
         self.tsleep = tsleep
-        self.Stype  = Stype
+        self.Stype = Stype
         self.timeout = timeout
-        self.nkeep   = nkeep
+        self.nkeep = nkeep
         self.daemon = True
 
         # Subscribe
@@ -560,21 +567,25 @@ class DDSSubscriber(threading.Thread):
             self.mgr.salTelemetrySub("{}_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getNextSample_kernel_FK5Target
             self.getNextSample = getattr(self.mgr, "getNextSample_{}".format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,
+                                                                               self.Device, self.topic))
         elif self.Stype == 'Event':
             self.myData = getattr(SALPY_lib, '{}_logevent_{}C'.format(self.Device, self.topic))()
             self.mgr.salEvent("{}_logevent_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.getEvent_startIntegration(event)
             self.getEvent = getattr(self.mgr, 'getEvent_{}'.format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,
+                                                                               self.Device, self.topic))
         elif self.Stype == 'Command':
-            self.log.warning('This method is not intended to be used to listen to commands. Unless you know what you'
-                             'are doing, you are probably looking for DDSController instead.')
+            self.log.warning('This method is not intended to be used to listen to commands. '
+                             'Unless you know what you are doing, you are probably looking for '
+                             'DDSController instead.')
             self.myData = getattr(SALPY_lib, '{}_command_{}C'.format(self.Device, self.topic))()
             self.mgr.salProcessor("{}_command_{}".format(self.Device, self.topic))
             # Generic method to get for example: self.mgr.acceptCommand_takeImages(event)
             self.acceptCommand = getattr(self.mgr, 'acceptCommand_{}'.format(self.topic))
-            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype, self.Device, self.topic))
+            self.log.debug("{} subscriber ready for Device:{} topic:{}".format(self.Stype,
+                                                                               self.Device, self.topic))
 
     def run(self):
         ''' The run method for the threading'''
@@ -596,7 +607,7 @@ class DDSSubscriber(threading.Thread):
             retval = self.getNextSample(self.myData)
             if retval == 0:
                 self.myDatalist.append(self.myData)
-                self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
+                self.myDatalist = self.myDatalist[-self.nkeep:]  # Keep only nkeep entries
                 self.newTelem = True
             time.sleep(self.tsleep)
         return
@@ -606,7 +617,7 @@ class DDSSubscriber(threading.Thread):
             retval = self.getEvent(self.myData)
             if retval == 0:
                 self.myDatalist.append(self.myData)
-                self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
+                self.myDatalist = self.myDatalist[-self.nkeep:]  # Keep only nkeep entries
                 self.newEvent = True
             time.sleep(self.tsleep)
         return
@@ -616,7 +627,7 @@ class DDSSubscriber(threading.Thread):
             self.cmdId = self.acceptCommand(self.myData)
             if self.cmdId > 0:
                 self.myDatalist.append(self.myData)
-                self.myDatalist = self.myDatalist[-self.nkeep:] # Keep only nkeep entries
+                self.myDatalist = self.myDatalist[-self.nkeep:]  # Keep only nkeep entries
                 self.newCommand = True
             time.sleep(self.tsleep)
         return
@@ -629,7 +640,8 @@ class DDSSubscriber(threading.Thread):
         else:
             # Current = None
             # For now we're passing the empty value of the object, we might want to revise this in the future
-            self.log.warning("No value received for: '{}' yet, sending empty object anyway".format(self.topic))
+            self.log.warning("No value received for: '{}' yet, "
+                             "sending empty object anyway".format(self.topic))
             Current = self.myData
         return Current
 
@@ -642,7 +654,7 @@ class DDSSubscriber(threading.Thread):
     def getCurrentCommand(self):
         return self.getCurrent()
 
-    def waitEvent(self,tsleep=None,timeout=None):
+    def waitEvent(self, tsleep=None, timeout=None):
 
         """ Loop for waiting for new event """
         if not tsleep:
@@ -650,7 +662,7 @@ class DDSSubscriber(threading.Thread):
         if not timeout:
             timeout = self.timeout
 
-        t0 =  time.time()
+        t0 = time.time()
         while not self.newEvent:
             sys.stdout.flush()
             sys.stdout.write("Wating for %s event.. [%s]" % (self.topic, spinner.next()))
@@ -664,18 +676,16 @@ class DDSSubscriber(threading.Thread):
 
     def resetEvent(self):
         ''' Simple function to set it back'''
-        self.newEvent=False
+        self.newEvent = False
 
 
 class DDSSend(threading.Thread):
-
-    '''
+    """
     Class to generate/send Telemetry, Events or Commands.
     In the case of a command, the class instance cannot be
     re-used.
     For Events/Telemetry, the same object can be re-used for a given Device,
-    '''
-
+    """
     def __init__(self, Device, device_id=None, sleeptime=0.1, timeout=30):
         threading.Thread.__init__(self)
         self.daemon = True
@@ -715,13 +725,13 @@ class DDSSend(threading.Thread):
         -------
         None
         """
-
         while True:
             if len(self.cmd_responses) > 0:
                 response = self.manager.getResponse_enable(self.ack)
                 # Only store listed commands.
                 if response in self.cmd_responses:
-                    self.cmd_responses[response]['ack'].append((self.ack.ack, self.ack.error, self.ack.result))
+                    self.cmd_responses[response]['ack'].append((self.ack.ack,
+                                                                self.ack.error, self.ack.result))
                     self.cmd_responses[response]['event'].set()
 
             time.sleep(self.sleeptime)
@@ -731,13 +741,18 @@ class DDSSend(threading.Thread):
 
     def send_Command(self, cmd, **kwargs):
         """
-         Send a Command to a Device
+        Send a Command to a Device
 
-        :param cmd:
-        :param kwargs:
-        :return:
+        Parameters
+        ----------
+        cmd: str
+        kwargs: dict
+
+        Returns
+        -------
+        int, int or None
+            cmdid, return value of command
         """
-
         timeout = int(kwargs.pop('timeout', self.timeout))
         wait_command = kwargs.pop('wait_command', False)
 
@@ -779,17 +794,18 @@ class DDSSend(threading.Thread):
 
         Parameters
         ----------
-        cmdid: The command id.
-        timeout: An optional timeout in seconds.
+        cmdid: int
+            The command id.
+        timeout: float
+            An optional timeout in seconds.
 
         Returns
         -------
-        cmdid: int: The id of the command if command is complete. The negative id of the command if command is not
-                    complete but received ack. -1 if times out.
-        ack: tuple(int, int, int) : The ack result or empty if it times out.
+        int, tuple
+            cmdid, ack result of command (empty if timed out)
         """
         # Do some basic sanity check
-        if cmdid not in self.cmd_responses: # make sure we known this command
+        if cmdid not in self.cmd_responses:  # make sure we known this command
             IOError('Unknown command {}'.format(cmdid))
         elif len(self.cmd_responses[cmdid]['ack']) > 0 and (
                 self.cmd_responses[cmdid]['ack'][-1][0] != SAL__CMD_ACK and
@@ -799,7 +815,8 @@ class DDSSend(threading.Thread):
             return cmdid, ack
 
         tout = timeout if timeout is not None else self.timeout
-        self.log.debug("Wait %f sec for completion of cmd: %s:[%s]", tout, self.cmd_responses[cmdid]['cmd'], cmdid)
+        self.log.debug("Wait %f sec for completion of cmd: %s:[%s]", tout,
+                       self.cmd_responses[cmdid]['cmd'], cmdid)
         # retval = getattr(self.manager, 'waitForCompletion_{}'.format(cmd))(cmdid, tout)
         start_time = time.time()
         while time.time()-start_time < tout:
@@ -817,24 +834,26 @@ class DDSSend(threading.Thread):
         return -1, ()
 
     def waitForInProgress(self, cmdid, timeout=None):
-        """
-        This method waits for an event from the specified command id and blocks until it receives an indication
+        """Wait for an event from the specified command id and blocks until it receives an indication
         of command in Progress. Basically any ack that is not SAL__CMD_ACK is
         considered in progress. Also, note that SAL__CMD_NOACK is ignored at a higher level.
 
         Parameters
         ----------
-        cmdid: The command id.
-        timeout: An optional timeout in seconds.
+        cmdid: int
+            The command id.
+        timeout: float
+            An optional timeout in seconds.
 
         Returns
         -------
-        cmdid: int: The id of the command if command is in progress. The negative id of the command if command is not
-                    complete but received ack. -1 if times out.
-        ack: tuple(int, int, int) : The ack result or empty if it times out.
+        int, tuple
+            cmdid, ack result of command (empty if timed out)
+            cmdid - the id of the command if command is in progress (the negative id of the command if
+            command is not complete but received ack. -1 if times out), the ack result or empty if timed out.
         """
         # Do some basic sanity check
-        if cmdid not in self.cmd_responses: # make sure we known this command
+        if cmdid not in self.cmd_responses:  # make sure we known this command
             IOError('Unknown command {}'.format(cmdid))
         elif len(self.cmd_responses[cmdid]['ack']) > 0 and (
                 self.cmd_responses[cmdid]['ack'][-1][0] != SAL__CMD_ACK):
@@ -843,7 +862,8 @@ class DDSSend(threading.Thread):
             return cmdid, ack
 
         tout = timeout if timeout is not None else self.timeout
-        self.log.debug("Wait %f sec for in progress of cmd: %s:[%s]", tout, self.cmd_responses[cmdid]['cmd'], cmdid)
+        self.log.debug("Wait %f sec for in progress of cmd: %s:[%s]", tout,
+                       self.cmd_responses[cmdid]['cmd'], cmdid)
         # retval = getattr(self.manager, 'waitForCompletion_{}'.format(cmd))(cmdid, tout)
         start_time = time.time()
         while time.time()-start_time < tout:
@@ -855,39 +875,41 @@ class DDSSend(threading.Thread):
                     self.log.debug('Command in progress with ack %i:%i:%s', ack[0], ack[1], ack[2])
                     return cmdid, ack
                 else:
-                    self.log.debug('Waiting for command to start. Received ack %i:%i:%s', ack[0], ack[1], ack[2])
+                    self.log.debug('Waiting for command to start. Received ack %i:%i:%s',
+                                   ack[0], ack[1], ack[2])
                     # return -cmdid, ack
         self.log.debug('%s:[%i]: Timed out', self.cmd_responses[cmdid]['cmd'], cmdid)
         return -1, ()
 
     def ackCommand(self, cmd, cmdId):
         """ Just send the ACK for a command, it need the cmdId as input"""
-        self.log.debug("Sending ACK for Id: {} for Command: {}".format(cmdId,cmd))
-        self.manager.salProcessor("{}_command_{}".format(self.Device,cmd))
+        self.log.debug("Sending ACK for Id: {} for Command: {}".format(cmdId, cmd))
+        self.manager.salProcessor("{}_command_{}".format(self.Device, cmd))
         ackCommand = getattr(self.manager, 'ackCommand_{}'.format(cmd))
-        ackCommand(cmdId, SAL__CMD_COMPLETE, 0, "Done : OK");
+        ackCommand(cmdId, SAL__CMD_COMPLETE, 0, "Done : OK")
 
     def acceptCommand(self, cmd):
         mgr = self.manager
-        mgr.salProcessor("{}_command_{}".format(self.Device,cmd))
+        mgr.salProcessor("{}_command_{}".format(self.Device, cmd))
         acceptCommand = getattr(mgr, 'acceptCommand_{}'.format(cmd))
-        myData = getattr(self.SALPY_lib, '{}_command_{}C'.format(self.Device,cmd))()
+        myData = getattr(self.SALPY_lib, '{}_command_{}C'.format(self.Device, cmd))()
         while True:
             cmdId = acceptCommand(myData)
             if cmdId > 0:
                 time.sleep(1)
                 break
         cmdId = acceptCommand(myData)
-        self.log.debug("Accepting cmdId: {} for Command: {}".format(cmdId,cmd))
+        self.log.debug("Accepting cmdId: {} for Command: {}".format(cmdId, cmd))
         return cmdId
 
     def send_Event(self, event, **kwargs):
         """
         Publish an Event.
 
-        :param event:
-        :param kwargs:
-        :return:
+        Parameters
+        ----------
+        event: str
+        kwargs: dict
         """
 
         priority = kwargs.get('priority', 1)
@@ -910,9 +932,10 @@ class DDSSend(threading.Thread):
         """
         Publish Telemetry.
 
-        :param telemetry:
-        :param kwargs:
-        :return:
+        Parameters
+        ----------
+        telemetry: str
+        kwargs: dict
         """
 
         # Get the myData object
@@ -924,7 +947,7 @@ class DDSSend(threading.Thread):
         if telemetry_name not in self.subscribed:
             self.manager.salTelemetryPub(telemetry_name)
             self.subscribed.append(telemetry_name)
-            
+
         self.log.debug("Sending Telemetry: {}".format(telemetry))
         getattr(self.manager, 'putSample_{}'.format(telemetry))(data)
 
@@ -951,12 +974,12 @@ class DDSSend(threading.Thread):
 
         return data
 
-class DDSSubscriberContainer:
-    '''
-    This utility class will subscribe to all or a specific event from a specified controller and provide high-level
-    object-oriented access to the underlying data.
-    '''
 
+class DDSSubscriberContainer:
+    """
+    This utility class will subscribe to all or a specific event from a specified controller
+    and provide high-level object-oriented access to the underlying data.
+    """
     def __init__(self, device, stype='Event', topic=None, tsleep=0.1, device_id=None):
 
         self.device = device
@@ -1014,7 +1037,8 @@ class DDSSubscriberContainer:
                         self.subscribers[name] = DDSSubscriber(Device=self.device,
                                                                topic=name,
                                                                Stype=self.type,
-                                                               threadID='{}_{}_{}'.format(self.device, self.type, name),
+                                                               threadID='{}_{}_{}'.format(self.device,
+                                                                                          self.type, name),
                                                                tsleep=self.tsleep,
                                                                device_id=device_id)
                         self.subscribers[name].start()
@@ -1029,25 +1053,24 @@ class DDSSubscriberContainer:
         else:
             raise AttributeError('No attribute ' + item)
 
-def command_sequencer(commands,Device='atHeaderService',wait_time=1, sleep_time=3):
 
+def command_sequencer(commands, Device='atHeaderService', wait_time=1, sleep_time=3):
     """
     Stand-alone function to send a sequence of OCS Commands
     """
-
     # We get the equivalent of:
     #  mgr = SALPY_atHeaderService.SAL_atHeaderService()
     # Load (if not in globals already) SALPY_{deviceName}
     SALPY_lib = load_SALPYlib(Device)
 
-    mgr = getattr(SALPY_lib,'SAL_{}'.format(Device))()
+    mgr = getattr(SALPY_lib, 'SAL_{}'.format(Device))()
     myData = {}
     issueCommand = {}
     waitForCompletion = {}
     for cmd in commands:
-        myData[cmd] = getattr(SALPY_lib,'{}_command_{}C'.format(Device,cmd))()
-        issueCommand[cmd] = getattr(mgr,'issueCommand_{}'.format(cmd))
-        waitForCompletion[cmd] = getattr(mgr,'waitForCompletion_{}'.format(cmd))
+        myData[cmd] = getattr(SALPY_lib, '{}_command_{}C'.format(Device, cmd))()
+        issueCommand[cmd] = getattr(mgr, 'issueCommand_{}'.format(cmd))
+        waitForCompletion[cmd] = getattr(mgr, 'waitForCompletion_{}'.format(cmd))
         # If Start we send some non-sense value
         if cmd == 'Start':
             myData[cmd].configure = 'blah.json'
@@ -1056,7 +1079,7 @@ def command_sequencer(commands,Device='atHeaderService',wait_time=1, sleep_time=
         LOGGER.info("Issuing command: {}".format(cmd))
         LOGGER.info("Wait for Completion: {}".format(cmd))
         cmdId = issueCommand[cmd](myData[cmd])
-        waitForCompletion[cmd](cmdId,wait_time)
+        waitForCompletion[cmd](cmdId, wait_time)
         LOGGER.info("Done: {}".format(cmd))
         time.sleep(sleep_time)
 

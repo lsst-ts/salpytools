@@ -1,0 +1,6 @@
+setupRequired(utils)
+setupRequired(pex_exceptions)
+setupRequired(ts_sal)
+
+envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)
+
